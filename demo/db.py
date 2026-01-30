@@ -52,6 +52,18 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
             CREATE INDEX IF NOT EXISTS idx_videos_session ON videos(session_id);
+
+            CREATE TABLE IF NOT EXISTS consistency_states (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL UNIQUE,
+                state_data TEXT NOT NULL,
+                version INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_consistency_session ON consistency_states(session_id);
         """)
 
 
@@ -275,6 +287,126 @@ def get_session_video(session_id):
         video["segment_urls"] = json.loads(video["segment_urls"]) if video["segment_urls"] else []
 
         return video
+
+
+# ============ Consistency State Functions ============
+
+def save_consistency_state(state):
+    """
+    Save a VideoConsistencyState to the database.
+
+    Args:
+        state: VideoConsistencyState instance (will be serialized to JSON)
+    """
+    now = datetime.utcnow().isoformat()
+
+    # Serialize state to JSON
+    if hasattr(state, "model_dump"):
+        # Pydantic v2
+        state_data = json.dumps(state.model_dump(mode="json"))
+    elif hasattr(state, "dict"):
+        # Pydantic v1
+        state_data = json.dumps(state.dict())
+    else:
+        # Already a dict
+        state_data = json.dumps(state)
+
+    state_id = state.id if hasattr(state, "id") else str(uuid.uuid4())
+    session_id = state.session_id if hasattr(state, "session_id") else None
+    version = state.version if hasattr(state, "version") else 1
+
+    if not session_id:
+        raise ValueError("state must have a session_id")
+
+    with get_connection() as conn:
+        # Check if exists
+        existing = conn.execute(
+            "SELECT id FROM consistency_states WHERE session_id = ?",
+            (session_id,)
+        ).fetchone()
+
+        if existing:
+            # Update existing
+            conn.execute("""
+                UPDATE consistency_states
+                SET state_data = ?, version = ?, updated_at = ?
+                WHERE session_id = ?
+            """, (state_data, version, now, session_id))
+        else:
+            # Insert new
+            conn.execute("""
+                INSERT INTO consistency_states (id, session_id, state_data, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (state_id, session_id, state_data, version, now, now))
+
+        # Update session's updated_at
+        conn.execute(
+            "UPDATE sessions SET updated_at = ? WHERE id = ?",
+            (now, session_id)
+        )
+
+
+def get_consistency_state(session_id):
+    """
+    Get the consistency state for a session.
+
+    Args:
+        session_id: The session ID
+
+    Returns:
+        VideoConsistencyState instance or None if not found
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM consistency_states WHERE session_id = ?",
+            (session_id,)
+        ).fetchone()
+
+        if not row:
+            return None
+
+        state_data = json.loads(row["state_data"])
+
+        # Try to return as VideoConsistencyState if available
+        try:
+            from consistency.schemas import VideoConsistencyState
+            return VideoConsistencyState.model_validate(state_data)
+        except ImportError:
+            # Return raw dict if schemas not available
+            return state_data
+
+
+def delete_consistency_state(session_id):
+    """
+    Delete the consistency state for a session.
+
+    Args:
+        session_id: The session ID
+    """
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM consistency_states WHERE session_id = ?",
+            (session_id,)
+        )
+
+
+def get_consistency_state_version(session_id):
+    """
+    Get the current version of a consistency state without loading full data.
+
+    Args:
+        session_id: The session ID
+
+    Returns:
+        Version number or None if not found
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT version FROM consistency_states WHERE session_id = ?",
+            (session_id,)
+        ).fetchone()
+
+        return row["version"] if row else None
 
 
 # Initialize DB on import
