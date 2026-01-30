@@ -24,12 +24,13 @@ def _get_client():
 
 class GeminiImageProvider(ImageProvider):
     """
-    Image generation using Gemini 3 Pro Image (Nano Banana Pro).
+    Image generation using Gemini's Imagen model.
     This is synchronous - returns immediately with base64 image data.
     """
 
     def __init__(self):
-        self.model = "gemini-3-pro-image-preview"
+        # Use Imagen 3 for image generation (not the multimodal Gemini model)
+        self.model = "imagen-3.0-generate-002"
 
     @property
     def name(self) -> str:
@@ -37,7 +38,7 @@ class GeminiImageProvider(ImageProvider):
 
     def generate_image(self, prompt: str, **kwargs) -> GenerationTask:
         """
-        Generate an image using Gemini Nano Banana Pro.
+        Generate an image using Google's Imagen model.
         Returns synchronously with base64 image data.
         """
         task_id = str(uuid.uuid4())
@@ -51,55 +52,62 @@ class GeminiImageProvider(ImageProvider):
         try:
             client = _get_client()
 
-            # Configure for image generation
-            config = types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"],
-                image_config=types.ImageConfig(
+            print(f"[GeminiImageProvider] Generating image with model: {self.model}")
+            print(f"[GeminiImageProvider] Prompt: {prompt[:100]}...")
+
+            # Use Imagen for image generation
+            response = client.models.generate_images(
+                model=self.model,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
                     aspect_ratio="16:9",
-                    image_size="2K"
+                    safety_filter_level="BLOCK_MEDIUM_AND_ABOVE",
                 )
             )
 
-            response = client.models.generate_content(
-                model=self.model,
-                contents=[prompt],
-                config=config
-            )
+            print(f"[GeminiImageProvider] Response received, images: {len(response.generated_images) if response.generated_images else 0}")
 
             # Extract image from response
-            image_data = None
-            for part in response.parts:
-                # Skip text parts
-                if part.text:
-                    continue
-                # Try to get image using stable SDK method
-                try:
-                    img = part.as_image()
-                    if img:
-                        # Convert PIL Image to base64
+            if response.generated_images and len(response.generated_images) > 0:
+                image = response.generated_images[0]
+                # The image data is in image.image (bytes)
+                if hasattr(image, 'image') and image.image:
+                    # image.image is a PIL Image or bytes depending on SDK version
+                    if hasattr(image.image, 'data'):
+                        # It's bytes-like
+                        image_bytes = image.image.data
+                    elif hasattr(image.image, 'save'):
+                        # It's a PIL Image
                         buffer = io.BytesIO()
-                        img.save(buffer, format="PNG")
-                        image_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
-                        break
-                except AttributeError:
-                    # Fallback: try inline_data
-                    if hasattr(part, 'inline_data') and part.inline_data:
-                        image_data = base64.b64encode(part.inline_data.data).decode("utf-8")
-                        break
+                        image.image.save(buffer, format="PNG")
+                        image_bytes = buffer.getvalue()
+                    else:
+                        # Try direct bytes
+                        image_bytes = bytes(image.image)
 
-            if image_data:
-                task.status = "completed"
-                task.result = ImageData(
-                    base64_data=image_data,
-                    mime_type="image/png"
-                )
+                    image_data = base64.b64encode(image_bytes).decode("utf-8")
+                    task.status = "completed"
+                    task.result = ImageData(
+                        base64_data=image_data,
+                        mime_type="image/png"
+                    )
+                    print(f"[GeminiImageProvider] Image generated successfully, size: {len(image_bytes)} bytes")
+                else:
+                    task.status = "error"
+                    task.error = "Image object has no image data"
+                    print(f"[GeminiImageProvider] Error: Image object has no image data. Attrs: {dir(image)}")
             else:
                 task.status = "error"
-                task.error = "No image generated in response"
+                task.error = "No images in response"
+                print(f"[GeminiImageProvider] Error: No images in response")
 
         except Exception as e:
             task.status = "error"
             task.error = str(e)
+            print(f"[GeminiImageProvider] Exception: {e}")
+            import traceback
+            traceback.print_exc()
 
         return task
 

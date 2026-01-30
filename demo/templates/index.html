@@ -1556,7 +1556,13 @@
                         keyframeUrls[kf.frame] = kf.url;
                         if (el) { el.style.background = '#1a3a1a'; el.style.color = '#7dad68'; el.textContent = `F${kf.frame}: Done ✓`; }
                     } else if (kf.status === 'error') {
-                        if (el) { el.style.background = '#3a1a1a'; el.style.color = '#f5a0a0'; el.textContent = `F${kf.frame}: Failed`; }
+                        console.error(`Frame ${kf.frame} error:`, kf.error);
+                        if (el) {
+                            el.style.background = '#3a1a1a';
+                            el.style.color = '#f5a0a0';
+                            el.textContent = `F${kf.frame}: ${kf.error ? kf.error.substring(0, 30) : 'Failed'}`;
+                            el.title = kf.error || 'Unknown error';
+                        }
                     } else if (kf.task_id) {
                         // Poll this task
                         try {
@@ -1570,7 +1576,14 @@
                                 if (el) { el.style.background = '#1a3a1a'; el.style.color = '#7dad68'; el.textContent = `F${kf.frame}: Done ✓`; }
                             } else if (data.status === 'error') {
                                 kf.status = 'error';
-                                if (el) { el.style.background = '#3a1a1a'; el.style.color = '#f5a0a0'; el.textContent = `F${kf.frame}: Failed`; }
+                                kf.error = data.error;
+                                console.error(`Frame ${kf.frame} poll error:`, data.error);
+                                if (el) {
+                                    el.style.background = '#3a1a1a';
+                                    el.style.color = '#f5a0a0';
+                                    el.textContent = `F${kf.frame}: ${data.error ? data.error.substring(0, 30) : 'Failed'}`;
+                                    el.title = data.error || 'Unknown error';
+                                }
                             } else {
                                 allDone = false;
                                 if (el) { el.textContent = `F${kf.frame}: ${data.task_status || 'Processing'}`; }
