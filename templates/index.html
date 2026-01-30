@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alibaba Wan API Tester</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #00d4ff;
+        }
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr 300px;
+            gap: 20px;
+        }
+        .panel {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .panel h2 {
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+            color: #00d4ff;
+            border-bottom: 1px solid #0f3460;
+            padding-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+            font-size: 0.85rem;
+        }
+        select, textarea, input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            background: #1a1a2e;
+            color: #eee;
+            margin-bottom: 15px;
+            font-family: inherit;
+        }
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #00d4ff;
+            color: #1a1a2e;
+            width: 100%;
+        }
+        .btn-primary:hover { background: #00b8e6; }
+        .btn-primary:disabled { background: #555; cursor: not-allowed; }
+        .btn-secondary {
+            background: #0f3460;
+            color: #eee;
+            font-size: 0.85rem;
+            padding: 6px 12px;
+        }
+        .btn-secondary:hover { background: #1a4a7a; }
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+        }
+        .btn-danger:hover { background: #c0392b; }
+        .conditional-field {
+            display: none;
+        }
+        .conditional-field.visible {
+            display: block;
+        }
+        .inline-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .inline-fields > div {
+            margin-bottom: 0;
+        }
+        .inline-fields input, .inline-fields select {
+            margin-bottom: 10px;
+        }
+        .history-item, .saved-prompt-item {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            font-size: 0.85rem;
+        }
+        .history-item .meta {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            color: #888;
+            font-size: 0.75rem;
+        }
+        .history-item .prompt-text {
+            color: #ccc;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+        .history-item .status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .status.completed { background: #27ae60; }
+        .status.processing { background: #f39c12; }
+        .status.error { background: #e74c3c; }
+        .status.pending { background: #3498db; }
+        .result-display {
+            margin-top: 10px;
+        }
+        .result-display img, .result-display video {
+            max-width: 100%;
+            border-radius: 8px;
+        }
+        .saved-prompt-item {
+            cursor: pointer;
+        }
+        .saved-prompt-item:hover {
+            background: #0f3460;
+        }
+        .saved-prompt-item .name {
+            font-weight: 600;
+            color: #00d4ff;
+        }
+        .saved-prompt-item .preview {
+            color: #888;
+            font-size: 0.8rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .item-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        .history-list, .prompts-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .save-prompt-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .save-prompt-row input {
+            margin-bottom: 0;
+        }
+        .error-text {
+            color: #e74c3c;
+            font-size: 0.8rem;
+            margin-top: 5px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .loading.active {
+            display: block;
+        }
+        .spinner {
+            border: 3px solid #0f3460;
+            border-top: 3px solid #00d4ff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .model-hint {
+            font-size: 0.75rem;
+            color: #666;
+            margin-top: -10px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Wan API Tester</h1>
+
+        <div class="layout">
+            <!-- Input Panel -->
+            <div class="panel">
+                <h2>Generate</h2>
+
+                <label for="model">Model</label>
+                <select id="model">
+                    {% for model_id, model_info in models.items() %}
+                    <option value="{{ model_id }}"
+                        data-requires-image="{{ model_info.get('requires_image', False)|lower }}"
+                        data-requires-audio="{{ model_info.get('requires_audio', False)|lower }}"
+                        data-requires-video="{{ model_info.get('requires_video', False)|lower }}"
+                        data-requires-frames="{{ model_info.get('requires_first_last_frame', False)|lower }}"
+                        data-type="{{ model_info.type }}">
+                        {{ model_id }} - {{ model_info.description }}
+                    </option>
+                    {% endfor %}
+                </select>
+
+                <label for="prompt">Prompt</label>
+                <textarea id="prompt" placeholder="Enter your prompt here..."></textarea>
+
+                <!-- Conditional inputs based on model -->
+                <div id="imageUrlSection" class="conditional-field">
+                    <label for="imageUrl">Image URL</label>
+                    <input type="url" id="imageUrl" placeholder="https://example.com/image.jpg">
+                    <p class="model-hint">JPEG/PNG/BMP/WEBP, 360-2000px, max 10MB</p>
+                </div>
+
+                <div id="audioUrlSection" class="conditional-field">
+                    <label for="audioUrl">Audio URL</label>
+                    <input type="url" id="audioUrl" placeholder="https://example.com/audio.mp3">
+                    <p class="model-hint">WAV/MP3, 3-30 seconds, max 15MB</p>
+                </div>
+
+                <div id="videoUrlSection" class="conditional-field">
+                    <label for="videoUrl">Reference Video URL</label>
+                    <input type="url" id="videoUrl" placeholder="https://example.com/video.mp4">
+                </div>
+
+                <div id="framesSection" class="conditional-field">
+                    <label for="firstFrameUrl">First Frame URL</label>
+                    <input type="url" id="firstFrameUrl" placeholder="https://example.com/first.jpg">
+                    <label for="lastFrameUrl">Last Frame URL</label>
+                    <input type="url" id="lastFrameUrl" placeholder="https://example.com/last.jpg">
+                </div>
+
+                <!-- Video parameters -->
+                <div id="videoParams" class="conditional-field">
+                    <div class="inline-fields">
+                        <div>
+                            <label for="duration">Duration (seconds)</label>
+                            <input type="number" id="duration" value="5" min="2" max="15">
+                        </div>
+                        <div>
+                            <label for="resolution">Resolution</label>
+                            <select id="resolution">
+                                <option value="720P">720P</option>
+                                <option value="480P">480P</option>
+                                <option value="1080P">1080P</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="save-prompt-row">
+                    <input type="text" id="promptName" placeholder="Prompt name">
+                    <button class="btn-secondary" onclick="savePrompt()">Save</button>
+                </div>
+
+                <button id="generateBtn" class="btn-primary" onclick="generate()">Generate</button>
+
+                <div id="loading" class="loading">
+                    <div class="spinner"></div>
+                    <p style="margin-top: 10px; color: #888;">Generating...</p>
+                </div>
+            </div>
+
+            <!-- Results / History Panel -->
+            <div class="panel">
+                <h2>History</h2>
+                <div id="historyList" class="history-list">
+                    <p style="color: #666; text-align: center;">No generations yet</p>
+                </div>
+            </div>
+
+            <!-- Saved Prompts Panel -->
+            <div class="panel">
+                <h2>Saved Prompts</h2>
+                <div id="promptsList" class="prompts-list">
+                    <p style="color: #666; text-align: center;">No saved prompts</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const modelSelect = document.getElementById('model');
+        const conditionalSections = {
+            imageUrl: document.getElementById('imageUrlSection'),
+            audioUrl: document.getElementById('audioUrlSection'),
+            videoUrl: document.getElementById('videoUrlSection'),
+            frames: document.getElementById('framesSection'),
+            videoParams: document.getElementById('videoParams'),
+        };
+
+        function updateConditionalFields() {
+            const option = modelSelect.selectedOptions[0];
+            const requiresImage = option.dataset.requiresImage === 'true';
+            const requiresAudio = option.dataset.requiresAudio === 'true';
+            const requiresVideo = option.dataset.requiresVideo === 'true';
+            const requiresFrames = option.dataset.requiresFrames === 'true';
+            const isVideo = option.dataset.type === 'video';
+
+            // Also show image for wan2.6-image (for image editing)
+            const isImageModel = modelSelect.value === 'wan2.6-image';
+
+            conditionalSections.imageUrl.classList.toggle('visible', requiresImage || isImageModel);
+            conditionalSections.audioUrl.classList.toggle('visible', requiresAudio);
+            conditionalSections.videoUrl.classList.toggle('visible', requiresVideo);
+            conditionalSections.frames.classList.toggle('visible', requiresFrames);
+            conditionalSections.videoParams.classList.toggle('visible', isVideo);
+        }
+
+        modelSelect.addEventListener('change', updateConditionalFields);
+        updateConditionalFields();
+
+        loadHistory();
+        loadPrompts();
+
+        async function generate() {
+            const model = document.getElementById('model').value;
+            const prompt = document.getElementById('prompt').value;
+
+            const btn = document.getElementById('generateBtn');
+            const loading = document.getElementById('loading');
+            btn.disabled = true;
+            loading.classList.add('active');
+
+            const payload = {
+                model,
+                prompt,
+                image_url: document.getElementById('imageUrl').value || null,
+                audio_url: document.getElementById('audioUrl').value || null,
+                video_url: document.getElementById('videoUrl').value || null,
+                first_frame_url: document.getElementById('firstFrameUrl').value || null,
+                last_frame_url: document.getElementById('lastFrameUrl').value || null,
+                duration: document.getElementById('duration').value || null,
+                resolution: document.getElementById('resolution').value || null,
+            };
+
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    loadHistory();
+                    if (data.task_id) {
+                        pollTask(data.id, data.task_id);
+                    }
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+
+        async function pollTask(entryId, taskId) {
+            const poll = async () => {
+                try {
+                    const response = await fetch(`/api/task/${taskId}`);
+                    const data = await response.json();
+
+                    if (data.status === 'completed' || data.status === 'error') {
+                        loadHistory();
+                    } else {
+                        setTimeout(poll, 5000);
+                    }
+                } catch (err) {
+                    console.error('Poll error:', err);
+                    setTimeout(poll, 10000);
+                }
+            };
+            setTimeout(poll, 5000);
+        }
+
+        async function loadHistory() {
+            try {
+                const response = await fetch('/api/history');
+                const data = await response.json();
+                renderHistory(data);
+            } catch (err) {
+                console.error('Failed to load history:', err);
+            }
+        }
+
+        function renderHistory(items) {
+            const container = document.getElementById('historyList');
+
+            if (items.length === 0) {
+                container.innerHTML = '<p style="color: #666; text-align: center;">No generations yet</p>';
+                return;
+            }
+
+            container.innerHTML = items.map(item => `
+                <div class="history-item">
+                    <div class="meta">
+                        <span>${item.model}</span>
+                        <span>${new Date(item.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div class="prompt-text">${escapeHtml((item.prompt || '').substring(0, 200))}${(item.prompt || '').length > 200 ? '...' : ''}</div>
+                    <span class="status ${item.status}">${item.status}</span>
+                    ${item.error ? `<div class="error-text">${escapeHtml(item.error)}</div>` : ''}
+                    ${renderResult(item)}
+                    <div class="item-actions">
+                        <button class="btn-secondary" onclick="loadToEditor(\`${escapeHtml((item.prompt || '').replace(/`/g, '\\`'))}\`, '${item.model}')">Reuse</button>
+                        ${item.task_id && item.status === 'processing' ? `<button class="btn-secondary" onclick="checkTask('${item.id}', '${item.task_id}')">Check</button>` : ''}
+                        <button class="btn-danger" onclick="deleteHistory('${item.id}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderResult(item) {
+            if (!item.result) return '';
+
+            if (item.result.type === 'image' && item.result.urls && item.result.urls.length) {
+                return `<div class="result-display">
+                    ${item.result.urls.map(url => url ? `<img src="${url}" alt="Generated image">` : '').join('')}
+                </div>`;
+            }
+
+            if (item.result.type === 'video' && item.result.url) {
+                return `<div class="result-display">
+                    <video controls src="${item.result.url}"></video>
+                </div>`;
+            }
+
+            if (item.result.task_id && !item.result.url && !item.result.urls) {
+                return `<div class="result-display" style="color: #888; font-size: 0.8rem;">
+                    Task: ${item.result.task_id.substring(0, 16)}...
+                </div>`;
+            }
+
+            return '';
+        }
+
+        async function checkTask(entryId, taskId) {
+            try {
+                const response = await fetch(`/api/task/${taskId}`);
+                const data = await response.json();
+                alert(`Status: ${data.status}${data.task_status ? ' (' + data.task_status + ')' : ''}${data.error ? '\n' + data.error : ''}`);
+                if (data.status === 'completed') {
+                    loadHistory();
+                }
+            } catch (err) {
+                alert('Error checking task: ' + err.message);
+            }
+        }
+
+        async function deleteHistory(id) {
+            try {
+                await fetch(`/api/history/${id}`, { method: 'DELETE' });
+                loadHistory();
+            } catch (err) {
+                console.error('Failed to delete:', err);
+            }
+        }
+
+        async function loadPrompts() {
+            try {
+                const response = await fetch('/api/prompts');
+                const data = await response.json();
+                renderPrompts(data);
+            } catch (err) {
+                console.error('Failed to load prompts:', err);
+            }
+        }
+
+        function renderPrompts(prompts) {
+            const container = document.getElementById('promptsList');
+
+            if (prompts.length === 0) {
+                container.innerHTML = '<p style="color: #666; text-align: center;">No saved prompts</p>';
+                return;
+            }
+
+            container.innerHTML = prompts.map(p => `
+                <div class="saved-prompt-item" onclick="loadToEditor(\`${escapeHtml((p.prompt || '').replace(/`/g, '\\`'))}\`, '${p.model || ''}')">
+                    <div class="name">${escapeHtml(p.name)}</div>
+                    <div class="preview">${escapeHtml((p.prompt || '').substring(0, 50))}...</div>
+                    <div class="item-actions" onclick="event.stopPropagation()">
+                        <button class="btn-danger" onclick="deletePrompt('${p.id}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function savePrompt() {
+            const name = document.getElementById('promptName').value || 'Untitled';
+            const prompt = document.getElementById('prompt').value;
+            const model = document.getElementById('model').value;
+
+            if (!prompt.trim()) {
+                alert('Please enter a prompt first');
+                return;
+            }
+
+            try {
+                await fetch('/api/prompts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, prompt, model })
+                });
+                document.getElementById('promptName').value = '';
+                loadPrompts();
+            } catch (err) {
+                alert('Error saving prompt: ' + err.message);
+            }
+        }
+
+        async function deletePrompt(id) {
+            try {
+                await fetch(`/api/prompts/${id}`, { method: 'DELETE' });
+                loadPrompts();
+            } catch (err) {
+                console.error('Failed to delete:', err);
+            }
+        }
+
+        function loadToEditor(prompt, model) {
+            document.getElementById('prompt').value = prompt;
+            if (model) {
+                document.getElementById('model').value = model;
+                updateConditionalFields();
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

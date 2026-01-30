@@ -1,0 +1,9 @@
+Idea:
+We will enable people to test product ideas without having to build any of the product. Using image and video models, as well as the initial context our user provides about their idea (app, service, etc.), we will deploy AI agents to augment the context, gather additional necessary info, understand the user’s stylistic needs, scrape the web if needed, pull from a standardized UI type library if needed, and generate a launch style video.   Here’s an example use case. 
+ My friend is working on a startup that teaches AI literacy to people in a personalized way. His product works the following way. It starts with an extendd onboarding quiz, where users are asked about their type of work, challenges they face, software they use, basically all the context the system needs to know about their workflows and pain points. Then, the system dynamicaly generates learning moduels using AI that instructs users on how to use the most up to date AI tools to boost and automate their workflows. A standout feature is that the system will track what users are doing/working on and automatically surface useful videos when they're needed the most.  i.e. a user would be working on a repeatable process where they're taking some unstructured data, manually looking over it to extract insights, and then putting into a sheet. and maybe then the system would have alittle popup saying, hey, we can help you wtih this, and then show them how to set up a quick automation that uses LLMs and web agents to do the same task. 
+The thing is, he hasn't actually built the app yet. This is where a new product that I'm working on comes in. Basically, we're going to create a proof of concept video that nicely showcases his product without him having to build anything, so he can validate the concept. 
+
+
+
+
+
