@@ -7,18 +7,82 @@ import requests
 import subprocess
 import tempfile
 import uuid
-from flask import Flask, request, jsonify, render_template, session, send_file
+import time
+from flask import Flask, request, jsonify, render_template, session, send_file, Response
 from dotenv import load_dotenv
 from google import genai
+
+import db
+from providers import (
+    get_image_provider,
+    get_video_provider,
+    list_providers,
+    ImageData,
+    GenerationTask,
+)
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# Gemini client
+# Gemini client for chat
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 MODEL = "gemini-3-flash-preview"
+
+# ============ Image Cache for base64 images ============
+# Google provider returns base64, but we need URLs for some operations
+_image_cache: dict[str, tuple[bytes, str, float]] = {}  # cache_id -> (bytes, mime_type, timestamp)
+IMAGE_CACHE_TTL = 3600  # 1 hour
+
+
+def cache_image(image_bytes: bytes, mime_type: str = "image/png") -> str:
+    """Cache image bytes and return a URL path to serve them."""
+    cache_id = uuid.uuid4().hex[:16]
+    _image_cache[cache_id] = (image_bytes, mime_type, time.time())
+    # Clean up old entries
+    _cleanup_image_cache()
+    return f"/api/images/{cache_id}"
+
+
+def _cleanup_image_cache():
+    """Remove expired cache entries."""
+    now = time.time()
+    expired = [k for k, v in _image_cache.items() if now - v[2] > IMAGE_CACHE_TTL]
+    for k in expired:
+        del _image_cache[k]
+
+
+@app.route("/api/images/<cache_id>")
+def serve_cached_image(cache_id):
+    """Serve a cached image by its ID."""
+    if cache_id not in _image_cache:
+        return jsonify({"error": "Image not found or expired"}), 404
+
+    image_bytes, mime_type, _ = _image_cache[cache_id]
+    return Response(image_bytes, mimetype=mime_type)
+
+
+# ============ Task Registry for polling ============
+# Store GenerationTask objects for async polling
+_task_registry: dict[str, GenerationTask] = {}
+
+
+def register_task(task: GenerationTask) -> str:
+    """Register a task for later polling."""
+    _task_registry[task.task_id] = task
+    return task.task_id
+
+
+def get_task(task_id: str) -> GenerationTask | None:
+    """Get a registered task by ID."""
+    return _task_registry.get(task_id)
+
+
+def remove_task(task_id: str):
+    """Remove a completed task from registry."""
+    _task_registry.pop(task_id, None)
+
 
 # System prompt for context gathering
 SYSTEM_PROMPT = """You are a product strategist helping someone create a demo video for their product idea. Your goal is to deeply understand their product so you can help generate a compelling demo video.
@@ -118,8 +182,117 @@ def chat_with_gemini(conversation_history):
 
 @app.route("/")
 def index():
+    # Check for session_id in query params
+    session_id = request.args.get("session")
+
+    if session_id:
+        # Load existing session
+        existing = db.get_session(session_id)
+        if existing:
+            session["session_id"] = session_id
+            session["conversation"] = db.get_conversation(session_id)
+            return render_template("index.html")
+
+    # Create new session
+    new_session_id = db.create_session()
+    session["session_id"] = new_session_id
     session["conversation"] = []
     return render_template("index.html")
+
+
+# ============ Provider API Routes ============
+
+@app.route("/api/providers", methods=["GET"])
+def get_providers():
+    """List available providers and current selection."""
+    providers = list_providers()
+    return jsonify({
+        "available": providers,
+        "current": {
+            "image": session.get("image_provider", os.getenv("IMAGE_PROVIDER", "wan")),
+            "video": session.get("video_provider", os.getenv("VIDEO_PROVIDER", "wan"))
+        }
+    })
+
+
+@app.route("/api/set-provider", methods=["POST"])
+def set_provider():
+    """Set the current provider for image and/or video generation."""
+    data = request.json or {}
+    providers = list_providers()
+
+    if "image" in data:
+        if data["image"] in providers["image"]:
+            session["image_provider"] = data["image"]
+        else:
+            return jsonify({"error": f"Unknown image provider: {data['image']}"}), 400
+
+    if "video" in data:
+        if data["video"] in providers["video"]:
+            session["video_provider"] = data["video"]
+        else:
+            return jsonify({"error": f"Unknown video provider: {data['video']}"}), 400
+
+    session.modified = True
+    return jsonify({
+        "status": "ok",
+        "current": {
+            "image": session.get("image_provider", os.getenv("IMAGE_PROVIDER", "wan")),
+            "video": session.get("video_provider", os.getenv("VIDEO_PROVIDER", "wan"))
+        }
+    })
+
+
+# ============ Session API Routes ============
+
+@app.route("/api/sessions", methods=["GET"])
+def list_sessions():
+    """List all sessions with summary info."""
+    sessions = db.list_sessions()
+    return jsonify(sessions)
+
+
+@app.route("/api/sessions", methods=["POST"])
+def create_session():
+    """Create a new session."""
+    data = request.json or {}
+    name = data.get("name")
+    session_id = db.create_session(name=name)
+    return jsonify({"id": session_id})
+
+
+@app.route("/api/sessions/<session_id>", methods=["GET"])
+def get_session(session_id):
+    """Get full session data."""
+    sess = db.get_session(session_id)
+    if not sess:
+        return jsonify({"error": "Session not found"}), 404
+    return jsonify(sess)
+
+
+@app.route("/api/sessions/<session_id>", methods=["DELETE"])
+def delete_session(session_id):
+    """Delete a session."""
+    db.delete_session(session_id)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/sessions/<session_id>/name", methods=["PUT"])
+def rename_session(session_id):
+    """Rename a session."""
+    data = request.json or {}
+    name = data.get("name", "")
+    db.rename_session(session_id, name)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/current-session", methods=["GET"])
+def get_current_session():
+    """Get the current session ID."""
+    session_id = session.get("session_id")
+    if not session_id:
+        return jsonify({"error": "No active session"}), 404
+    return jsonify({"id": session_id})
 
 
 @app.route("/chat", methods=["POST"])
@@ -130,23 +303,50 @@ def chat():
     if "conversation" not in session:
         session["conversation"] = []
 
+    # Ensure we have a session_id
+    if "session_id" not in session:
+        session["session_id"] = db.create_session()
+
+    session_id = session["session_id"]
+
     # Add user message
     session["conversation"].append({"role": "user", "content": user_message})
+    db.add_message(session_id, "user", user_message)
 
     # Get Gemini response
     response = chat_with_gemini(session["conversation"])
 
     # Add assistant response to history
-    session["conversation"].append({"role": "assistant", "content": json.dumps(response)})
+    assistant_content = json.dumps(response)
+    session["conversation"].append({"role": "assistant", "content": assistant_content})
+    db.add_message(session_id, "assistant", assistant_content)
     session.modified = True
+
+    # Update session with product understanding
+    if response.get("product_understanding"):
+        product = response["product_understanding"]
+        db.update_session(
+            session_id,
+            product_understanding=product,
+            confidence=response.get("confidence", 0.0),
+            is_ready=response.get("ready_for_video", False)
+        )
+        # Auto-generate session name from product name if not set
+        if product.get("name"):
+            existing = db.get_session(session_id)
+            if existing and not existing.get("name"):
+                db.rename_session(session_id, product["name"])
 
     return jsonify(response)
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
+    # Create a new session instead of just clearing
+    new_session_id = db.create_session()
+    session["session_id"] = new_session_id
     session["conversation"] = []
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "session_id": new_session_id})
 
 
 @app.route("/generate-script", methods=["POST"])
@@ -157,53 +357,77 @@ def generate_script():
     product = data.get("product_understanding", {})
     print(f"Product: {product}")
 
-    script_prompt = f"""Based on this product understanding, generate a punchy 15-second demo video script:
+    # Get conversation history for additional context
+    conversation_context = ""
+    if "conversation" in session:
+        conversation_context = "\n".join([
+            f"{msg['role'].upper()}: {msg['content'][:500]}"
+            for msg in session["conversation"][-6:]  # Last 6 messages for context
+        ])
+
+    script_prompt = f"""Based on this product understanding and conversation context, generate a punchy 15-second demo video script:
 
 Product: {json.dumps(product, indent=2)}
 
+Conversation Context (use this to understand user preferences and product details):
+{conversation_context if conversation_context else "No additional context"}
+
 CRITICAL CONSTRAINTS:
 - Generate THREE separate 5-second video segments that will be combined into ONE COHESIVE 15-second video
-- AI video CANNOT render ANY text. NEVER include text, words, UI, screens with content, or readable elements
-- Use ONLY: visual metaphors, light/particle effects, human emotions, object transformations, environmental changes
+- AI video CANNOT render readable text/words. But SCREENS ARE ENCOURAGED for digital products!
+
+FOR DIGITAL PRODUCTS (apps, software, websites, browser extensions, SaaS, AI tools):
+- The SCREEN should be the HERO of 70-80% of the video
+- Show the screen prominently with "GREEKED" UI: gray rectangular bars for text, colored shapes for buttons, abstract icons
+- NEVER show actual readable text - use thick gray horizontal lines to represent text blocks
+- UI elements should be simplified: colored rectangles for buttons, simple geometric shapes for icons
+- The screen should GLOW and feel magical - light emanating from it, reflections on the user's face
+- Camera angles: over-the-shoulder looking at screen, close-up of screen with user reflection, screen filling 60%+ of frame
+- Show the transformation ON THE SCREEN: cluttered gray bars -> organized glowing elements -> satisfying resolved state
+
+FOR PHYSICAL PRODUCTS:
+- Focus on the product itself with dramatic lighting
+- Show human interaction and emotional response
 
 VISUAL CONSISTENCY IS PARAMOUNT:
 - ALL 4 keyframes MUST share the EXACT SAME: subject/person, environment/location, camera angle style, lighting setup, color palette
-- Think of it as ONE continuous shot with transformation - the SAME person in the SAME room with lighting/mood changes
-- Each keyframe prompt MUST explicitly reference the consistent elements (e.g., "The same person from previous frames...", "In the same minimalist office...")
-- Use a SINGLE recurring visual motif/symbol throughout (e.g., a glowing orb, light particles, color shift)
+- The SAME screen/monitor in the SAME position throughout
+- Each keyframe prompt MUST explicitly reference the consistent elements
+- Use a SINGLE recurring visual motif throughout (for digital: glowing UI elements, light from screen, cursor trails)
 
 Structure (3 segments, 5 seconds each):
-1. HOOK (0-5s): Visual attention grab - show the problem through emotion/environment
-2. MAGIC (5-10s): The transformation - abstract visual representation of the solution
-3. PAYOFF (10-15s): The result - human satisfaction, visual resolution, brand feeling
+1. HOOK (0-5s): The problem state - screen showing chaotic/cluttered greeked UI, user looking frustrated
+2. MAGIC (5-10s): The transformation - screen elements reorganizing, glowing, the "magic moment"
+3. PAYOFF (10-15s): The result - clean organized screen, user satisfaction, warm glow
 
 Output as JSON:
 {{
   "title": "Video title",
-  "visual_style": "DEFINE FIRST: Exact cinematic style that ALL frames must follow (e.g., 'Photorealistic, shallow depth of field, warm cinematic lighting, 35mm lens look')",
-  "color_palette": "DEFINE FIRST: Exact colors for ALL frames (e.g., 'Deep navy blue shadows, warm amber highlights, soft cream midtones')",
-  "consistent_elements": "DEFINE FIRST: Elements that appear in EVERY frame (e.g., 'A 30-year-old woman with dark hair, minimalist white office, soft morning light from left window')",
-  "visual_motif": "DEFINE FIRST: The recurring symbol/effect (e.g., 'Soft golden light particles that grow brighter through the sequence')",
+  "is_digital_product": true/false,
+  "visual_style": "DEFINE FIRST: Exact cinematic style (e.g., 'Photorealistic, shallow depth of field, screen as light source, 35mm lens')",
+  "color_palette": "DEFINE FIRST: Exact colors - for digital products include screen glow color (e.g., 'Deep navy shadows, electric blue screen glow, warm amber accents')",
+  "consistent_elements": "DEFINE FIRST: Elements in EVERY frame. For digital: include monitor/screen description, user description, room setup, camera angle",
+  "visual_motif": "DEFINE FIRST: For digital products, this should relate to the screen (e.g., 'Soft blue light emanating from screen that grows warmer and brighter')",
   "keyframes": [
     {{
       "frame": 1,
       "name": "opening",
-      "image_prompt": "DETAILED 80-100 word prompt. START with the consistent_elements, THEN add this frame's unique state: problem/tension visible. Include: exact composition, subject expression/posture showing frustration, the visual_motif in its initial dim state, color_palette applied. NO TEXT/UI/WORDS."
+      "image_prompt": "DETAILED 80-100 word prompt. For digital products: SCREEN MUST BE VISIBLE taking up significant frame space. Show greeked UI (gray bars for text, simple shapes for buttons) in a cluttered/chaotic state. User visible but secondary to screen. Screen casts cool light on user's frustrated face. Describe exact screen content using abstract shapes. NO READABLE TEXT but DO show the screen prominently."
     }},
     {{
       "frame": 2,
       "name": "transition_1_2",
-      "image_prompt": "DETAILED 80-100 word prompt. START by restating consistent_elements ('The same [person] in the same [environment]...'). Show: first hint of transformation, visual_motif beginning to glow/activate, subject's expression shifting to curiosity. Maintain EXACT same camera angle and lighting direction. NO TEXT/UI/WORDS."
+      "image_prompt": "DETAILED 80-100 word prompt. SAME screen, SAME angle. Screen beginning to transform - some greeked elements starting to glow/organize. User's expression shifting to curiosity, lit by changing screen light. The visual_motif (screen glow) intensifying. Maintain exact camera position."
     }},
     {{
       "frame": 3,
       "name": "transition_2_3",
-      "image_prompt": "DETAILED 80-100 word prompt. START by restating consistent_elements. Show: transformation in full effect, visual_motif at peak brightness/activity, subject engaged and hopeful. SAME environment now feels warmer/brighter. Maintain camera consistency. NO TEXT/UI/WORDS."
+      "image_prompt": "DETAILED 80-100 word prompt. SAME screen, SAME angle. Screen transformation in full effect - greeked UI elements now organized, glowing with product's brand color. Beautiful abstract patterns of rectangles and shapes. User engaged, face illuminated warmly. Screen is the visual hero."
     }},
     {{
       "frame": 4,
       "name": "closing",
-      "image_prompt": "DETAILED 80-100 word prompt. START by restating consistent_elements. Show: resolution achieved, visual_motif settled into satisfying final state, subject expressing relief/joy/satisfaction. Environment at its warmest/brightest. SAME camera angle, lighting now at peak warmth. NO TEXT/UI/WORDS."
+      "image_prompt": "DETAILED 80-100 word prompt. SAME screen, SAME angle. Screen showing resolved, clean greeked UI - organized gray bars, glowing accent elements, satisfying visual order. User relaxed and satisfied, bathed in warm screen glow. The screen radiates accomplishment. Environment feels warm and successful."
     }}
   ],
   "segments": [
@@ -212,21 +436,21 @@ Output as JSON:
       "name": "hook",
       "first_frame": 1,
       "last_frame": 2,
-      "motion_description": "Subtle motion only - small movements, breathing, the visual_motif beginning to appear (1-2 sentences)"
+      "motion_description": "Screen elements subtly shifting, user's small movements, light from screen flickering slightly"
     }},
     {{
       "segment": 2,
       "name": "magic",
       "first_frame": 2,
       "last_frame": 3,
-      "motion_description": "The transformation motion - visual_motif expanding/growing, lighting shift, subject's posture changing (1-2 sentences)"
+      "motion_description": "Screen elements animating - reorganizing, glowing trails, the transformation happening ON the screen"
     }},
     {{
       "segment": 3,
       "name": "payoff",
       "first_frame": 3,
       "last_frame": 4,
-      "motion_description": "Resolution motion - visual_motif settling, subject relaxing into satisfaction, final lighting bloom (1-2 sentences)"
+      "motion_description": "Screen settling into final state, warm light bloom, user leaning back in satisfaction"
     }}
   ]
 }}"""
@@ -257,6 +481,13 @@ Output as JSON:
 
         parsed = json.loads(result_text.strip())
         print("Successfully parsed JSON")
+
+        # Save script to database
+        session_id = session.get("session_id")
+        if session_id:
+            video_id = db.create_video(session_id, script=parsed)
+            parsed["video_id"] = video_id
+
         return jsonify(parsed)
 
     except Exception as e:
@@ -266,26 +497,26 @@ Output as JSON:
         return jsonify({"error": str(e)}), 500
 
 
-# Wan API integration
-WAN_API_URL = "http://localhost:5000"
-
+# ============ Video Generation Routes (Provider-aware) ============
 
 @app.route("/generate-video", methods=["POST"])
 def generate_video():
-    """Generate videos using keyframe-to-video approach for cohesive transitions"""
+    """Generate keyframe images using the selected provider."""
     data = request.json
     keyframes = data.get("keyframes", [])
     segments = data.get("segments", [])
 
-    print(f"=== Keyframe-to-Video Generation ===")
+    # Get provider from session or request
+    provider_name = data.get("provider") or session.get("image_provider") or os.getenv("IMAGE_PROVIDER", "wan")
+
+    print(f"=== Keyframe Generation (provider: {provider_name}) ===")
     print(f"Keyframes: {len(keyframes)}, Segments: {len(segments)}")
 
     if not keyframes or not segments:
         return jsonify({"error": "Missing keyframes or segments"}), 400
 
     try:
-        # Step 1: Generate all keyframe images in parallel
-        print("Step 1: Generating keyframe images...")
+        image_provider = get_image_provider(provider_name)
         image_tasks = []
 
         for kf in keyframes:
@@ -293,35 +524,32 @@ def generate_video():
             prompt = kf.get("image_prompt", "")
             print(f"  Frame {frame_num}: {prompt[:80]}...")
 
-            response = requests.post(
-                f"{WAN_API_URL}/api/generate",
-                json={
-                    "model": "wan2.6-image",
-                    "prompt": prompt
-                },
-                timeout=180
-            )
+            task = image_provider.generate_image(prompt)
 
-            result = response.json()
-            if result.get("status") == "completed" and result.get("result", {}).get("urls"):
-                # Sync image generation completed immediately
+            if task.status == "completed" and task.result:
+                # Sync completion - get URL (cache if needed for base64)
+                url = task.result.to_url(cache_func=cache_image)
                 image_tasks.append({
                     "frame": frame_num,
                     "status": "completed",
-                    "url": result["result"]["urls"][0]
+                    "url": url,
+                    "provider": provider_name
                 })
-            elif result.get("task_id"):
-                # Async - need to poll
+            elif task.status == "processing":
+                # Async - register task for polling
+                register_task(task)
                 image_tasks.append({
                     "frame": frame_num,
                     "status": "processing",
-                    "task_id": result.get("task_id")
+                    "task_id": task.task_id,
+                    "provider": provider_name
                 })
             else:
                 image_tasks.append({
                     "frame": frame_num,
                     "status": "error",
-                    "error": result.get("error", "Failed to start image generation")
+                    "error": task.error or "Failed to start image generation",
+                    "provider": provider_name
                 })
 
         return jsonify({
@@ -329,29 +557,107 @@ def generate_video():
             "phase": "keyframes",
             "keyframe_tasks": image_tasks,
             "segments": segments,
-            "message": f"Generating {len(keyframes)} keyframe images"
+            "provider": provider_name,
+            "message": f"Generating {len(keyframes)} keyframe images with {provider_name}"
         })
 
-    except requests.exceptions.ConnectionError:
-        return jsonify({"error": "Wan API not running"}), 500
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/video-status/<task_id>")
+def video_status(task_id):
+    """Check generation status for a single task (works for both image and video)."""
+    # Get provider from query params
+    provider_name = request.args.get("provider", "wan")
+
+    # First check our task registry
+    task = get_task(task_id)
+
+    if task:
+        # Poll using the appropriate provider
+        try:
+            if task.task_type == "image":
+                provider = get_image_provider(task.provider)
+            else:
+                provider = get_video_provider(task.provider)
+
+            task = provider.poll_task(task)
+            _task_registry[task_id] = task  # Update registry
+
+            if task.status == "completed":
+                if task.task_type == "image" and task.result:
+                    url = task.result.to_url(cache_func=cache_image)
+                    return jsonify({
+                        "status": "completed",
+                        "result": {"urls": [url]} if url else {}
+                    })
+                elif task.task_type == "video":
+                    # Handle video result
+                    if task.result_url:
+                        return jsonify({
+                            "status": "completed",
+                            "result": {"url": task.result_url}
+                        })
+                    elif task.result_bytes:
+                        # Save video bytes to static folder
+                        filename = f"video_{task_id[:8]}.mp4"
+                        filepath = os.path.join("static", filename)
+                        os.makedirs("static", exist_ok=True)
+                        with open(filepath, "wb") as f:
+                            f.write(task.result_bytes)
+                        url = f"/static/{filename}"
+                        return jsonify({
+                            "status": "completed",
+                            "result": {"url": url}
+                        })
+            elif task.status == "error":
+                return jsonify({
+                    "status": "error",
+                    "error": task.error
+                })
+            else:
+                return jsonify({
+                    "status": "processing",
+                    "task_status": task.provider_data.get("task_status", "RUNNING")
+                })
+
+        except Exception as e:
+            return jsonify({"status": "error", "error": str(e)}), 500
+
+    # Fallback: try Wan API directly for backwards compatibility
+    try:
+        wan_url = os.getenv("WAN_API_URL", "http://localhost:5000")
+        response = requests.get(f"{wan_url}/api/task/{task_id}", timeout=180)
+        result = response.json()
+        print(f"Task {task_id} status (Wan fallback): {result}")
+        return jsonify(result)
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/generate-videos-from-keyframes", methods=["POST"])
 def generate_videos_from_keyframes():
-    """Generate videos from keyframe images using kf2v model"""
+    """Generate videos from keyframe images using the selected provider."""
     data = request.json
     keyframe_urls = data.get("keyframe_urls", {})  # {1: url, 2: url, 3: url, 4: url}
     segments = data.get("segments", [])
 
-    print(f"=== Generating videos from keyframes ===")
+    # Get provider from session or request
+    provider_name = data.get("provider") or session.get("video_provider") or os.getenv("VIDEO_PROVIDER", "wan")
+
+    print(f"=== Video Generation (provider: {provider_name}) ===")
     print(f"Keyframe URLs: {list(keyframe_urls.keys())}")
 
-    video_tasks = []
-
     try:
+        video_provider = get_video_provider(provider_name)
+        video_tasks = []
+
         for seg in segments:
             segment_num = seg.get("segment")
             first_frame = seg.get("first_frame")
@@ -365,67 +671,75 @@ def generate_videos_from_keyframes():
                 video_tasks.append({
                     "segment": segment_num,
                     "status": "error",
-                    "error": f"Missing keyframe URLs for frames {first_frame} or {last_frame}"
+                    "error": f"Missing keyframe URLs for frames {first_frame} or {last_frame}",
+                    "provider": provider_name
                 })
                 continue
 
-            print(f"  Segment {segment_num}: frames {first_frame}→{last_frame}")
+            print(f"  Segment {segment_num}: frames {first_frame}->{last_frame}")
 
-            response = requests.post(
-                f"{WAN_API_URL}/api/generate",
-                json={
-                    "model": "wan2.2-kf2v-flash",
-                    "prompt": motion,
-                    "first_frame_url": first_url,
-                    "last_frame_url": last_url
-                },
-                timeout=180
+            # Create ImageData from URLs
+            first_image = ImageData(url=first_url)
+            last_image = ImageData(url=last_url)
+
+            task = video_provider.generate_video(
+                prompt=motion,
+                first_frame=first_image,
+                last_frame=last_image
             )
 
-            result = response.json()
-            if result.get("status") == "processing":
+            if task.status == "processing":
+                register_task(task)
                 video_tasks.append({
                     "segment": segment_num,
                     "status": "processing",
-                    "task_id": result.get("task_id")
+                    "task_id": task.task_id,
+                    "provider": provider_name
+                })
+            elif task.status == "completed":
+                url = task.result_url
+                if task.result_bytes and not url:
+                    # Save bytes to file
+                    filename = f"seg_{segment_num}_{task.task_id[:8]}.mp4"
+                    filepath = os.path.join("static", filename)
+                    os.makedirs("static", exist_ok=True)
+                    with open(filepath, "wb") as f:
+                        f.write(task.result_bytes)
+                    url = f"/static/{filename}"
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "completed",
+                    "url": url,
+                    "provider": provider_name
                 })
             else:
                 video_tasks.append({
                     "segment": segment_num,
                     "status": "error",
-                    "error": result.get("error", "Failed to start video generation")
+                    "error": task.error or "Failed to start video generation",
+                    "provider": provider_name
                 })
 
         return jsonify({
             "status": "generating_videos",
             "phase": "videos",
             "segments": video_tasks,
-            "message": f"Generating {len(video_tasks)} video segments from keyframes"
+            "provider": provider_name,
+            "message": f"Generating {len(video_tasks)} video segments with {provider_name}"
         })
 
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         print(f"Error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/video-status/<task_id>")
-def video_status(task_id):
-    """Check video generation status for single task"""
-    try:
-        response = requests.get(
-            f"{WAN_API_URL}/api/task/{task_id}",
-            timeout=180
-        )
-        result = response.json()
-        print(f"Task {task_id} status: {result}")
-        return jsonify(result)
-    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/video-status-multi", methods=["POST"])
 def video_status_multi():
-    """Check status of multiple video segments"""
+    """Check status of multiple video segments."""
     data = request.json
     segments = data.get("segments", [])
 
@@ -436,19 +750,67 @@ def video_status_multi():
     for seg in segments:
         task_id = seg.get("task_id")
         segment_num = seg.get("segment")
+        provider_name = seg.get("provider", "wan")
 
+        # Check our task registry first
+        task = get_task(task_id)
+
+        if task:
+            try:
+                provider = get_video_provider(task.provider)
+                task = provider.poll_task(task)
+                _task_registry[task_id] = task
+
+                segment_result = {
+                    "segment": segment_num,
+                    "task_id": task_id,
+                    "status": task.status,
+                    "provider": task.provider
+                }
+
+                if task.status == "completed":
+                    url = task.result_url
+                    if task.result_bytes and not url:
+                        # Save bytes to file
+                        filename = f"seg_{segment_num}_{task_id[:8]}.mp4"
+                        filepath = os.path.join("static", filename)
+                        os.makedirs("static", exist_ok=True)
+                        with open(filepath, "wb") as f:
+                            f.write(task.result_bytes)
+                        url = f"/static/{filename}"
+                    segment_result["url"] = url
+                elif task.status == "error":
+                    segment_result["error"] = task.error
+                    any_failed = True
+                else:
+                    all_completed = False
+                    segment_result["task_status"] = task.provider_data.get("task_status", "RUNNING")
+
+                results.append(segment_result)
+                continue
+
+            except Exception as e:
+                results.append({
+                    "segment": segment_num,
+                    "task_id": task_id,
+                    "status": "error",
+                    "error": str(e)
+                })
+                any_failed = True
+                continue
+
+        # Fallback: try Wan API directly
         try:
-            response = requests.get(
-                f"{WAN_API_URL}/api/task/{task_id}",
-                timeout=180
-            )
+            wan_url = os.getenv("WAN_API_URL", "http://localhost:5000")
+            response = requests.get(f"{wan_url}/api/task/{task_id}", timeout=180)
             result = response.json()
 
             segment_result = {
                 "segment": segment_num,
                 "task_id": task_id,
                 "status": result.get("status"),
-                "task_status": result.get("task_status")
+                "task_status": result.get("task_status"),
+                "provider": "wan"
             }
 
             if result.get("status") == "completed":
@@ -470,10 +832,14 @@ def video_status_multi():
             })
             any_failed = True
 
+    # Only consider "all_completed" if we actually have successful videos
+    successful_count = sum(1 for r in results if r.get("status") == "completed" and r.get("url"))
+
     return jsonify({
         "segments": results,
-        "all_completed": all_completed,
-        "any_failed": any_failed
+        "all_completed": all_completed and successful_count >= 2,  # Need at least 2 videos to stitch
+        "any_failed": any_failed,
+        "successful_count": successful_count
     })
 
 
@@ -482,6 +848,7 @@ def stitch_videos():
     """Download and stitch multiple video segments using ffmpeg"""
     data = request.json
     video_urls = data.get("videos", [])  # [{segment: 1, url: "..."}, ...]
+    video_id = data.get("video_id")  # Optional: video record to update
 
     if len(video_urls) < 2:
         return jsonify({"error": "Need at least 2 videos to stitch"}), 400
@@ -498,6 +865,20 @@ def stitch_videos():
             for i, v in enumerate(video_urls):
                 url = v.get("url")
                 print(f"Downloading segment {i+1}...")
+
+                # Handle local files vs remote URLs
+                if url.startswith("/static/"):
+                    # Local file - copy it
+                    local_path = url.lstrip("/")
+                    if os.path.exists(local_path):
+                        filepath = os.path.join(tmpdir, f"seg_{i+1}.mp4")
+                        with open(local_path, "rb") as src:
+                            with open(filepath, "wb") as dst:
+                                dst.write(src.read())
+                        video_files.append(filepath)
+                        continue
+
+                # Remote URL - download it
                 resp = requests.get(url, timeout=60)
                 if resp.status_code != 200:
                     return jsonify({"error": f"Failed to download segment {i+1}"}), 500
@@ -535,9 +916,30 @@ def stitch_videos():
 
             print(f"Stitched video saved to {output_path}")
 
+            stitched_url = f"/static/{output_filename}"
+
+            # Update video record if we have one
+            if video_id:
+                db.update_video(
+                    video_id,
+                    segment_urls=video_urls,
+                    stitched_url=stitched_url,
+                    status="completed"
+                )
+            # Also try to find video by session
+            elif session.get("session_id"):
+                video = db.get_session_video(session["session_id"])
+                if video:
+                    db.update_video(
+                        video["id"],
+                        segment_urls=video_urls,
+                        stitched_url=stitched_url,
+                        status="completed"
+                    )
+
             return jsonify({
                 "status": "completed",
-                "url": f"/static/{output_filename}"
+                "url": stitched_url
             })
 
     except subprocess.TimeoutExpired:
