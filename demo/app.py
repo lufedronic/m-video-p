@@ -10,7 +10,6 @@ import uuid
 import time
 from flask import Flask, request, jsonify, render_template, session, send_file, Response
 from dotenv import load_dotenv
-from google import genai
 
 import db
 from providers import (
@@ -20,15 +19,17 @@ from providers import (
     ImageData,
     GenerationTask,
 )
+from providers.llm import (
+    get_llm_provider,
+    list_llm_providers,
+    get_available_llm_providers,
+    Message,
+)
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-
-# Gemini client for chat
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-MODEL = "gemini-3-flash-preview"
 
 # ============ Image Cache for base64 images ============
 # Google provider returns base64, but we need URLs for some operations
@@ -124,32 +125,56 @@ Start with LOW confidence and build up as you learn more. Mark ready_for_video=t
 Be concise. Ask 1-2 questions max per turn. Make bold guesses - it's easier for users to correct than to describe from scratch."""
 
 
-def chat_with_gemini(conversation_history):
-    """Send conversation to Gemini with thinking enabled"""
+def chat_with_llm(conversation_history, provider_name=None, model=None):
+    """Send conversation to the configured LLM provider."""
 
-    # Build messages
-    messages = [{"role": "user", "parts": [{"text": SYSTEM_PROMPT}]}]
-    messages.append({"role": "model", "parts": [{"text": "I understand. I'll help gather context about the product idea, make educated guesses, and ask targeted questions. I'll respond in the JSON format specified."}]})
-
-    for msg in conversation_history:
-        role = "user" if msg["role"] == "user" else "model"
-        messages.append({"role": role, "parts": [{"text": msg["content"]}]})
+    # Get provider from session or parameter
+    if provider_name is None:
+        provider_name = session.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini"))
+    if model is None:
+        model = session.get("llm_model")
 
     try:
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=messages,
-            config={
-                "thinking_config": {"thinking_level": "high"},
-                "temperature": 0.7,
-            }
+        provider = get_llm_provider(provider_name)
+    except ValueError as e:
+        return {
+            "message": f"LLM provider error: {str(e)}",
+            "product_understanding": {},
+            "confidence": 0.0,
+            "ready_for_video": False,
+            "assumptions_made": [],
+            "error": str(e)
+        }
+
+    # Build messages with system prompt
+    messages = [
+        Message(role="system", content=SYSTEM_PROMPT),
+    ]
+
+    for msg in conversation_history:
+        role = "user" if msg["role"] == "user" else "assistant"
+        messages.append(Message(role=role, content=msg["content"]))
+
+    try:
+        response = provider.chat(
+            messages=messages,
+            model=model,
+            temperature=0.7,
+            thinking=True,
+            thinking_level="high"  # For Gemini
         )
 
-        # Extract text from response
-        result_text = ""
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, 'text') and part.text:
-                result_text += part.text
+        if response.error:
+            return {
+                "message": f"Error: {response.error}",
+                "product_understanding": {},
+                "confidence": 0.0,
+                "ready_for_video": False,
+                "assumptions_made": [],
+                "error": response.error
+            }
+
+        result_text = response.content
 
         # Parse JSON from response
         # Handle markdown code blocks
@@ -243,6 +268,57 @@ def set_provider():
     })
 
 
+@app.route("/api/llm-providers", methods=["GET"])
+def get_llm_providers():
+    """List available LLM providers, their models, and current selection."""
+    providers = list_llm_providers()
+    available = get_available_llm_providers()
+
+    return jsonify({
+        "available": available,
+        "providers": providers,
+        "current": {
+            "provider": session.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini")),
+            "model": session.get("llm_model")  # None means use provider default
+        }
+    })
+
+
+@app.route("/api/set-llm-provider", methods=["POST"])
+def set_llm_provider():
+    """Set the current LLM provider and/or model."""
+    data = request.json or {}
+    available = get_available_llm_providers()
+
+    if "provider" in data:
+        if data["provider"] in available:
+            session["llm_provider"] = data["provider"]
+            # Reset model when switching providers
+            session["llm_model"] = None
+        else:
+            return jsonify({"error": f"Unknown or unconfigured LLM provider: {data['provider']}"}), 400
+
+    if "model" in data:
+        # Validate model belongs to current provider
+        provider_name = session.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini"))
+        try:
+            provider = get_llm_provider(provider_name)
+            if data["model"] and data["model"] not in provider.available_models:
+                return jsonify({"error": f"Unknown model '{data['model']}' for provider {provider_name}"}), 400
+            session["llm_model"] = data["model"] if data["model"] else None
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    session.modified = True
+    return jsonify({
+        "status": "ok",
+        "current": {
+            "provider": session.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini")),
+            "model": session.get("llm_model")
+        }
+    })
+
+
 # ============ Session API Routes ============
 
 @app.route("/api/sessions", methods=["GET"])
@@ -314,7 +390,7 @@ def chat():
     db.add_message(session_id, "user", user_message)
 
     # Get Gemini response
-    response = chat_with_gemini(session["conversation"])
+    response = chat_with_llm(session["conversation"])
 
     # Add assistant response to history
     assistant_content = json.dumps(response)
@@ -456,22 +532,28 @@ Output as JSON:
 }}"""
 
     try:
-        print("Calling Gemini API...")
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=script_prompt,
-            config={
-                "thinking_config": {"thinking_level": "medium"},
-                "temperature": 0.8,
-            }
+        # Get LLM provider
+        provider_name = session.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini"))
+        model = session.get("llm_model")
+
+        print(f"Calling LLM API (provider: {provider_name}, model: {model or 'default'})...")
+        provider = get_llm_provider(provider_name)
+
+        response = provider.generate(
+            prompt=script_prompt,
+            model=model,
+            temperature=0.8,
+            thinking=True,
+            thinking_level="medium"  # For Gemini
         )
-        print("Gemini response received")
 
-        result_text = ""
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, 'text') and part.text:
-                result_text += part.text
+        if response.error:
+            print(f"LLM error: {response.error}")
+            return jsonify({"error": response.error}), 500
 
+        print(f"LLM response received from {response.provider}/{response.model}")
+
+        result_text = response.content
         print(f"Raw result: {result_text[:200]}...")
 
         if "```json" in result_text:

@@ -775,10 +775,19 @@
             </div>
             <div class="header-right">
                 <div class="provider-selector">
-                    <label>Provider:</label>
+                    <label>LLM:</label>
+                    <select id="llmProviderSelect" onchange="setLLMProvider(this.value)">
+                        <!-- Populated by JS -->
+                    </select>
+                    <select id="llmModelSelect" onchange="setLLMModel(this.value)" style="max-width: 160px;">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="provider-selector">
+                    <label>Video:</label>
                     <select id="providerSelect" onchange="setProvider(this.value)">
-                        <option value="wan">Wan (Alibaba)</option>
-                        <option value="google">Google (Gemini/Veo)</option>
+                        <option value="wan">Wan</option>
+                        <option value="google">Google</option>
                     </select>
                 </div>
                 <button class="video-progress-btn" id="videoProgressBtn" style="display: none;" onclick="openModal()">Video in progress...</button>
@@ -1082,6 +1091,105 @@
                 console.error('Failed to set provider:', err);
             }
         }
+
+        // ============ LLM Provider Management ============
+
+        let currentLLMProvider = 'gemini';
+        let currentLLMModel = null;
+        let llmProviderData = {};
+
+        async function initLLMProvider() {
+            try {
+                const resp = await fetch('/api/llm-providers');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    llmProviderData = data.providers;
+
+                    // Populate provider dropdown
+                    const providerSelect = document.getElementById('llmProviderSelect');
+                    providerSelect.innerHTML = data.available.map(p => {
+                        const label = p === 'gemini' ? 'Gemini' :
+                                     p === 'anthropic' ? 'Claude' :
+                                     p === 'openai' ? 'OpenAI' : p;
+                        return `<option value="${p}">${label}</option>`;
+                    }).join('');
+
+                    // Set current values
+                    currentLLMProvider = data.current.provider || 'gemini';
+                    currentLLMModel = data.current.model;
+                    providerSelect.value = currentLLMProvider;
+
+                    // Populate model dropdown
+                    updateLLMModelDropdown();
+                }
+            } catch (err) {
+                console.error('Failed to init LLM provider:', err);
+            }
+        }
+
+        function updateLLMModelDropdown() {
+            const modelSelect = document.getElementById('llmModelSelect');
+            const providerInfo = llmProviderData[currentLLMProvider];
+
+            if (!providerInfo || !providerInfo.models || providerInfo.models.length === 0) {
+                modelSelect.innerHTML = '<option value="">Not configured</option>';
+                modelSelect.disabled = true;
+                return;
+            }
+
+            modelSelect.disabled = false;
+            modelSelect.innerHTML = providerInfo.models.map(m => {
+                const isDefault = m === providerInfo.default;
+                const label = m.replace(/-preview$/, '').replace(/-\d{8}$/, '');
+                return `<option value="${m}"${isDefault ? ' selected' : ''}>${label}${isDefault ? ' (default)' : ''}</option>`;
+            }).join('');
+
+            // Set current model or default
+            if (currentLLMModel && providerInfo.models.includes(currentLLMModel)) {
+                modelSelect.value = currentLLMModel;
+            } else {
+                modelSelect.value = providerInfo.default;
+            }
+        }
+
+        async function setLLMProvider(provider) {
+            try {
+                const resp = await fetch('/api/set-llm-provider', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider })
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    currentLLMProvider = data.current.provider;
+                    currentLLMModel = data.current.model;
+                    updateLLMModelDropdown();
+                    console.log('LLM provider set to:', currentLLMProvider);
+                }
+            } catch (err) {
+                console.error('Failed to set LLM provider:', err);
+            }
+        }
+
+        async function setLLMModel(model) {
+            try {
+                const resp = await fetch('/api/set-llm-provider', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model })
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    currentLLMModel = data.current.model;
+                    console.log('LLM model set to:', currentLLMModel);
+                }
+            } catch (err) {
+                console.error('Failed to set LLM model:', err);
+            }
+        }
+
+        // Initialize LLM provider on page load
+        initLLMProvider();
 
         async function sendMessage() {
             const message = inputEl.value.trim();
