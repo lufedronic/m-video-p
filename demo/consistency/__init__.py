@@ -10,6 +10,7 @@ Main components:
 - VisualStyle: Cinematic and visual style settings
 - VideoConsistencyState: Complete state container
 - ConsistencyManager: State tracking and persistence
+- PromptAssembler: Assembles optimized prompts for image/video generation
 """
 from .schemas import (
     # Enums
@@ -35,6 +36,7 @@ from .schemas import (
 )
 
 from .manager import ConsistencyManager
+from .assembler import PromptAssembler, create_assembler
 
 __all__ = [
     # Enums
@@ -59,4 +61,7 @@ __all__ = [
     "VideoConsistencyState",
     # Manager
     "ConsistencyManager",
+    # Assembler
+    "PromptAssembler",
+    "create_assembler",
 ]
