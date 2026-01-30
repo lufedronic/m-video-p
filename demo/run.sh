@@ -10,7 +10,7 @@ source venv/bin/activate
 pip install -q -r requirements.txt
 
 echo ""
-echo "Starting DemoForge on http://localhost:5001"
+echo "Starting m(video)p on http://localhost:5001"
 echo ""
 
 python app.py

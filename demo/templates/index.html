@@ -3,18 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DemoForge</title>
+    <title>m(video)p</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #0a0a0f;
-            --surface: #12121a;
-            --surface2: #1a1a25;
-            --border: #2a2a3a;
-            --text: #e4e4e7;
-            --text-dim: #71717a;
-            --accent: #6366f1;
-            --accent-glow: rgba(99, 102, 241, 0.3);
-            --success: #22c55e;
+            --bg: #0d0d0d;
+            --surface: #1a1714;
+            --surface2: #252019;
+            --beige: #f5f0e8;
+            --beige-dim: #c4baa8;
+            --beige-dark: #8a8070;
+            --brown: #8b5a2b;
+            --brown-light: #a67c52;
+            --brown-glow: rgba(139, 90, 43, 0.3);
+            --text: #f5f0e8;
+            --text-dim: #8a8070;
+            --success: #7dad68;
         }
 
         * {
@@ -28,54 +32,99 @@
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
+        }
+
+        /* Main Layout */
+        .app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--surface2);
+        }
+
+        .logo {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--beige);
+            letter-spacing: -0.02em;
+        }
+
+        .logo span {
+            color: var(--brown-light);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .confidence-pill {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--surface2);
+            color: var(--text-dim);
+            transition: all 0.3s;
+        }
+
+        .confidence-pill.ready {
+            background: var(--brown);
+            color: var(--beige);
+        }
+
+        /* Main Content */
+        .main {
+            flex: 1;
+            display: flex;
             overflow: hidden;
         }
 
-        .container {
-            display: grid;
-            grid-template-columns: 1fr 380px;
-            height: 100vh;
-            gap: 1px;
-            background: var(--border);
-        }
-
-        /* Chat Panel */
-        .chat-panel {
-            background: var(--bg);
+        /* Chat Area - Centered */
+        .chat-area {
+            flex: 1;
             display: flex;
             flex-direction: column;
-        }
-
-        .chat-header {
-            padding: 20px 30px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .chat-header h1 {
-            font-size: 1.5rem;
-            font-weight: 600;
-            background: linear-gradient(135deg, var(--accent), #a855f7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .chat-header p {
-            color: var(--text-dim);
-            font-size: 0.875rem;
-            margin-top: 4px;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 24px;
         }
 
         .messages {
             flex: 1;
+            min-height: 0;
             overflow-y: auto;
-            padding: 30px;
+            padding: 32px 0;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 24px;
+        }
+
+        .messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .messages::-webkit-scrollbar-thumb {
+            background: var(--surface2);
+            border-radius: 3px;
         }
 
         .message {
-            max-width: 85%;
+            display: flex;
+            gap: 16px;
             animation: fadeIn 0.3s ease;
         }
 
@@ -85,136 +134,154 @@
         }
 
         .message.user {
-            align-self: flex-end;
+            flex-direction: row-reverse;
         }
 
-        .message.assistant {
-            align-self: flex-start;
+        .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+            flex-shrink: 0;
+        }
+
+        .message.assistant .avatar {
+            background: var(--brown);
+            color: var(--beige);
+        }
+
+        .message.user .avatar {
+            background: var(--beige-dark);
+            color: var(--bg);
+        }
+
+        .message-body {
+            flex: 1;
+            max-width: 600px;
         }
 
         .message-content {
-            padding: 14px 18px;
+            padding: 16px 20px;
             border-radius: 16px;
             font-size: 0.95rem;
-            line-height: 1.5;
+            line-height: 1.6;
         }
 
         .message.user .message-content {
-            background: var(--accent);
+            background: var(--beige);
+            color: var(--bg);
             border-bottom-right-radius: 4px;
         }
 
         .message.assistant .message-content {
             background: var(--surface);
-            border: 1px solid var(--border);
+            border: 1px solid var(--surface2);
             border-bottom-left-radius: 4px;
         }
 
         .assumptions {
-            margin-top: 12px;
-            padding: 10px 14px;
+            margin-top: 10px;
+            padding: 12px 16px;
             background: var(--surface2);
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 0.8rem;
             color: var(--text-dim);
+            border-left: 3px solid var(--brown);
         }
 
         .assumptions strong {
-            color: var(--accent);
+            color: var(--brown-light);
         }
 
+        /* Input Area */
         .input-area {
-            padding: 20px 30px;
-            border-top: 1px solid var(--border);
-            background: var(--surface);
+            flex-shrink: 0;
+            padding: 24px 0 32px;
         }
 
-        .input-wrapper {
+        .input-container {
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 16px;
+            padding: 4px;
             display: flex;
-            gap: 12px;
+            align-items: flex-end;
+            gap: 8px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .input-container:focus-within {
+            border-color: var(--brown);
+            box-shadow: 0 0 0 3px var(--brown-glow);
         }
 
         #messageInput {
             flex: 1;
-            padding: 14px 18px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
+            padding: 14px 16px;
+            background: transparent;
+            border: none;
             color: var(--text);
             font-size: 0.95rem;
+            font-family: inherit;
             outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        #messageInput:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
+            resize: none;
+            min-height: 24px;
+            max-height: 200px;
         }
 
         #messageInput::placeholder {
             color: var(--text-dim);
         }
 
-        button {
-            padding: 14px 24px;
-            background: var(--accent);
+        #sendBtn {
+            padding: 12px 20px;
+            background: var(--brown);
             border: none;
             border-radius: 12px;
-            color: white;
+            color: var(--beige);
             font-weight: 600;
+            font-size: 0.875rem;
             cursor: pointer;
-            transition: transform 0.1s, opacity 0.2s;
+            transition: all 0.15s;
+            margin: 4px;
         }
 
-        button:hover {
-            opacity: 0.9;
+        #sendBtn:hover {
+            background: var(--brown-light);
         }
 
-        button:active {
-            transform: scale(0.98);
-        }
-
-        button:disabled {
-            opacity: 0.5;
+        #sendBtn:disabled {
+            opacity: 0.4;
             cursor: not-allowed;
         }
 
-        /* Product Canvas Panel */
-        .canvas-panel {
+        /* Side Panel */
+        .side-panel {
+            width: 340px;
             background: var(--surface);
+            border-left: 1px solid var(--surface2);
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
 
-        .canvas-header {
+        .panel-header {
             padding: 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            border-bottom: 1px solid var(--surface2);
         }
 
-        .canvas-header h2 {
-            font-size: 0.875rem;
+        .panel-header h2 {
+            font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.08em;
             color: var(--text-dim);
         }
 
-        .confidence-badge {
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .confidence-low { background: #ef4444; }
-        .confidence-mid { background: #f59e0b; }
-        .confidence-high { background: var(--success); }
-
-        .canvas-content {
+        .panel-content {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
@@ -222,30 +289,47 @@
 
         .product-card {
             background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 16px;
+            border: 1px solid var(--surface2);
+            border-radius: 12px;
             padding: 20px;
             margin-bottom: 16px;
         }
 
         .product-name {
-            font-size: 1.25rem;
+            font-size: 1.1rem;
             font-weight: 700;
+            color: var(--beige);
             margin-bottom: 4px;
         }
 
         .product-tagline {
             color: var(--text-dim);
-            font-size: 0.875rem;
+            font-size: 0.85rem;
             font-style: italic;
         }
 
+        .style-badges {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .style-badge {
+            padding: 5px 10px;
+            background: var(--brown-glow);
+            border: 1px solid var(--brown);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: var(--brown-light);
+        }
+
         .field-group {
-            margin-top: 20px;
+            margin-top: 16px;
         }
 
         .field-label {
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -254,9 +338,9 @@
         }
 
         .field-value {
-            font-size: 0.9rem;
+            font-size: 0.875rem;
             line-height: 1.5;
-            color: var(--text);
+            color: var(--beige-dim);
         }
 
         .field-value.empty {
@@ -274,39 +358,36 @@
             padding: 4px 10px;
             background: var(--surface2);
             border-radius: 6px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
+            color: var(--beige-dim);
         }
 
-        .style-badges {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-        }
-
-        .style-badge {
-            padding: 6px 12px;
-            background: var(--accent-glow);
-            border: 1px solid var(--accent);
-            border-radius: 8px;
-            font-size: 0.8rem;
-            color: var(--accent);
-        }
-
-        .canvas-footer {
+        .panel-footer {
             padding: 20px;
-            border-top: 1px solid var(--border);
+            border-top: 1px solid var(--surface2);
         }
 
         #generateBtn {
             width: 100%;
-            padding: 16px;
-            background: linear-gradient(135deg, var(--accent), #a855f7);
-            font-size: 1rem;
+            padding: 14px;
+            background: var(--brown);
+            border: none;
+            border-radius: 10px;
+            color: var(--beige);
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        #generateBtn:hover:not(:disabled) {
+            background: var(--brown-light);
         }
 
         #generateBtn:disabled {
             background: var(--surface2);
             color: var(--text-dim);
+            cursor: not-allowed;
         }
 
         .empty-state {
@@ -316,18 +397,22 @@
         }
 
         .empty-state .icon {
-            font-size: 3rem;
-            margin-bottom: 16px;
-            opacity: 0.3;
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+            opacity: 0.4;
         }
 
-        /* Loading state */
+        .empty-state p {
+            font-size: 0.875rem;
+        }
+
+        /* Typing indicator */
         .typing-indicator {
             display: flex;
             gap: 4px;
-            padding: 14px 18px;
+            padding: 16px 20px;
             background: var(--surface);
-            border: 1px solid var(--border);
+            border: 1px solid var(--surface2);
             border-radius: 16px;
             border-bottom-left-radius: 4px;
             width: fit-content;
@@ -336,7 +421,7 @@
         .typing-indicator span {
             width: 8px;
             height: 8px;
-            background: var(--text-dim);
+            background: var(--brown-light);
             border-radius: 50%;
             animation: bounce 1.4s infinite ease-in-out;
         }
@@ -349,12 +434,12 @@
             40% { transform: scale(1); }
         }
 
-        /* Script Modal */
+        /* Modal */
         .modal {
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.85);
             z-index: 100;
             align-items: center;
             justify-content: center;
@@ -366,11 +451,12 @@
 
         .modal-content {
             background: var(--surface);
-            border-radius: 20px;
-            max-width: 700px;
+            border: 1px solid var(--surface2);
+            border-radius: 16px;
+            max-width: 650px;
             max-height: 80vh;
             overflow-y: auto;
-            padding: 30px;
+            padding: 28px;
             margin: 20px;
         }
 
@@ -378,22 +464,31 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
 
         .modal-header h2 {
-            font-size: 1.25rem;
+            font-size: 1.1rem;
+            color: var(--beige);
         }
 
         .close-btn {
-            background: transparent;
+            background: var(--surface2);
+            border: none;
             color: var(--text-dim);
-            padding: 8px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .close-btn:hover {
+            color: var(--beige);
         }
 
         .scene {
             background: var(--bg);
-            border-radius: 12px;
+            border: 1px solid var(--surface2);
+            border-radius: 10px;
             padding: 16px;
             margin-bottom: 12px;
         }
@@ -401,12 +496,12 @@
         .scene-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
         }
 
         .scene-time {
             font-size: 0.8rem;
-            color: var(--accent);
+            color: var(--brown-light);
             font-weight: 600;
         }
 
@@ -414,6 +509,7 @@
             font-size: 0.7rem;
             text-transform: uppercase;
             color: var(--text-dim);
+            letter-spacing: 0.05em;
         }
 
         .scene-visual {
@@ -425,54 +521,73 @@
         .scene-narration {
             font-size: 0.95rem;
             font-style: italic;
+            color: var(--beige-dim);
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .side-panel {
+                display: none;
+            }
+            .chat-area {
+                max-width: 100%;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Chat Panel -->
-        <div class="chat-panel">
-            <div class="chat-header">
-                <h1>DemoForge</h1>
-                <p>Describe your product idea. I'll help turn it into a demo video.</p>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">m<span>(video)</span>p</div>
+            <div class="header-right">
+                <span class="confidence-pill" id="confidencePill">Gathering context...</span>
             </div>
+        </header>
 
-            <div class="messages" id="messages">
-                <div class="message assistant">
-                    <div class="message-content">
-                        Hey! Tell me about your product idea. Don't worry about having everything figured out — just give me the basics and I'll start building a picture of what you're creating.
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Centered Chat -->
+            <div class="chat-area">
+                <div class="messages" id="messages">
+                    <div class="message assistant">
+                        <div class="avatar">m</div>
+                        <div class="message-body">
+                            <div class="message-content">
+                                Tell me about your product idea. Don't worry about having everything figured out — give me the basics and I'll start piecing together your 15-second demo.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-area">
+                    <div class="input-container">
+                        <input type="text" id="messageInput" placeholder="Describe your product idea..." autofocus>
+                        <button id="sendBtn" onclick="sendMessage()">Send</button>
                     </div>
                 </div>
             </div>
 
-            <div class="input-area">
-                <div class="input-wrapper">
-                    <input type="text" id="messageInput" placeholder="Describe your product idea..." autofocus>
-                    <button id="sendBtn" onclick="sendMessage()">Send</button>
+            <!-- Side Panel -->
+            <aside class="side-panel">
+                <div class="panel-header">
+                    <h2>Product Canvas</h2>
                 </div>
-            </div>
-        </div>
 
-        <!-- Product Canvas Panel -->
-        <div class="canvas-panel">
-            <div class="canvas-header">
-                <h2>Product Canvas</h2>
-                <span class="confidence-badge confidence-low" id="confidenceBadge">0% Ready</span>
-            </div>
-
-            <div class="canvas-content" id="canvasContent">
-                <div class="empty-state">
-                    <div class="icon">✨</div>
-                    <p>Your product will take shape here as we talk.</p>
+                <div class="panel-content" id="canvasContent">
+                    <div class="empty-state">
+                        <div class="icon">◎</div>
+                        <p>Your product takes shape here as we talk.</p>
+                    </div>
                 </div>
-            </div>
 
-            <div class="canvas-footer">
-                <button id="generateBtn" disabled onclick="generateScript()">
-                    Generate Video Script
-                </button>
-            </div>
-        </div>
+                <div class="panel-footer">
+                    <button id="generateBtn" disabled onclick="generateScript()">
+                        Generate Video Script
+                    </button>
+                </div>
+            </aside>
+        </main>
     </div>
 
     <!-- Script Modal -->
@@ -503,7 +618,6 @@
             const message = inputEl.value.trim();
             if (!message) return;
 
-            // Add user message
             addMessage(message, 'user');
             inputEl.value = '';
             sendBtn.disabled = true;
@@ -511,7 +625,12 @@
             // Show typing indicator
             const typingEl = document.createElement('div');
             typingEl.className = 'message assistant';
-            typingEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+            typingEl.innerHTML = `
+                <div class="avatar">m</div>
+                <div class="message-body">
+                    <div class="typing-indicator"><span></span><span></span><span></span></div>
+                </div>
+            `;
             messagesEl.appendChild(typingEl);
             messagesEl.scrollTop = messagesEl.scrollHeight;
 
@@ -523,29 +642,23 @@
                 });
 
                 const data = await response.json();
-
-                // Remove typing indicator
                 typingEl.remove();
 
-                // Add assistant message
                 let html = `<div class="message-content">${data.message}</div>`;
                 if (data.assumptions_made && data.assumptions_made.length > 0) {
-                    html += `<div class="assumptions"><strong>My assumptions:</strong> ${data.assumptions_made.join(' • ')}</div>`;
+                    html += `<div class="assumptions"><strong>Assumptions:</strong> ${data.assumptions_made.join(' · ')}</div>`;
                 }
                 addMessageHTML(html, 'assistant');
 
-                // Update product canvas
                 if (data.product_understanding && Object.keys(data.product_understanding).length > 0) {
                     productUnderstanding = data.product_understanding;
                     updateCanvas(data.product_understanding, data.confidence);
                 }
 
-                // Update ready state
                 isReady = data.ready_for_video;
                 generateBtn.disabled = !isReady;
-                if (isReady) {
-                    generateBtn.textContent = '🎬 Generate Video Script';
-                }
+
+                updateConfidencePill(data.confidence, isReady);
 
             } catch (err) {
                 typingEl.remove();
@@ -559,7 +672,12 @@
         function addMessage(text, role) {
             const el = document.createElement('div');
             el.className = `message ${role}`;
-            el.innerHTML = `<div class="message-content">${escapeHtml(text)}</div>`;
+            el.innerHTML = `
+                <div class="avatar">${role === 'user' ? 'Y' : 'm'}</div>
+                <div class="message-body">
+                    <div class="message-content">${escapeHtml(text)}</div>
+                </div>
+            `;
             messagesEl.appendChild(el);
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
@@ -567,43 +685,53 @@
         function addMessageHTML(html, role) {
             const el = document.createElement('div');
             el.className = `message ${role}`;
-            el.innerHTML = html;
+            el.innerHTML = `
+                <div class="avatar">m</div>
+                <div class="message-body">${html}</div>
+            `;
             messagesEl.appendChild(el);
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
-        function updateCanvas(product, confidence) {
+        function updateConfidencePill(confidence, ready) {
+            const pill = document.getElementById('confidencePill');
             const pct = Math.round(confidence * 100);
-            const badge = document.getElementById('confidenceBadge');
-            badge.textContent = `${pct}% Ready`;
-            badge.className = 'confidence-badge ' +
-                (pct < 40 ? 'confidence-low' : pct < 75 ? 'confidence-mid' : 'confidence-high');
+            if (ready) {
+                pill.textContent = 'Ready to generate';
+                pill.classList.add('ready');
+            } else {
+                pill.textContent = `${pct}% context gathered`;
+                pill.classList.remove('ready');
+            }
+        }
 
+        function updateCanvas(product, confidence) {
             const content = document.getElementById('canvasContent');
             content.innerHTML = `
                 <div class="product-card">
                     <div class="product-name">${product.name || 'Untitled Product'}</div>
                     <div class="product-tagline">${product.tagline || 'No tagline yet'}</div>
-
-                    <div class="style-badges">
-                        ${product.tone ? `<span class="style-badge">${product.tone}</span>` : ''}
-                        ${product.visual_style ? `<span class="style-badge">${product.visual_style}</span>` : ''}
-                    </div>
+                    ${(product.tone || product.visual_style) ? `
+                        <div class="style-badges">
+                            ${product.tone ? `<span class="style-badge">${product.tone}</span>` : ''}
+                            ${product.visual_style ? `<span class="style-badge">${product.visual_style}</span>` : ''}
+                        </div>
+                    ` : ''}
                 </div>
 
                 <div class="field-group">
                     <div class="field-label">Problem</div>
-                    <div class="field-value ${!product.problem ? 'empty' : ''}">${product.problem || 'Not yet defined'}</div>
+                    <div class="field-value ${!product.problem ? 'empty' : ''}">${product.problem || 'Not defined'}</div>
                 </div>
 
                 <div class="field-group">
                     <div class="field-label">Solution</div>
-                    <div class="field-value ${!product.solution ? 'empty' : ''}">${product.solution || 'Not yet defined'}</div>
+                    <div class="field-value ${!product.solution ? 'empty' : ''}">${product.solution || 'Not defined'}</div>
                 </div>
 
                 <div class="field-group">
                     <div class="field-label">Target User</div>
-                    <div class="field-value ${!product.target_user ? 'empty' : ''}">${product.target_user || 'Not yet defined'}</div>
+                    <div class="field-value ${!product.target_user ? 'empty' : ''}">${product.target_user || 'Not defined'}</div>
                 </div>
 
                 <div class="field-group">
@@ -618,7 +746,9 @@
 
         async function generateScript() {
             generateBtn.disabled = true;
-            generateBtn.textContent = 'Generating...';
+            generateBtn.textContent = 'Generating (this takes ~30s)...';
+
+            console.log('Generating script for:', productUnderstanding);
 
             try {
                 const response = await fetch('/generate-script', {
@@ -627,29 +757,39 @@
                     body: JSON.stringify({ product_understanding: productUnderstanding })
                 });
 
+                console.log('Response status:', response.status);
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('Server error:', text);
+                    alert('Server error: ' + response.status);
+                    return;
+                }
+
                 const script = await response.json();
+                console.log('Script received:', script);
 
                 if (script.error) {
-                    alert('Error generating script: ' + script.error);
+                    alert('Error: ' + script.error);
                     return;
                 }
 
                 showScript(script);
 
             } catch (err) {
-                alert('Error: ' + err.message);
+                console.error('Fetch error:', err);
+                alert('Network error: ' + err.message + '\n\nCheck browser console for details.');
             } finally {
                 generateBtn.disabled = false;
-                generateBtn.textContent = '🎬 Generate Video Script';
+                generateBtn.textContent = 'Generate Video Script';
             }
         }
 
         function showScript(script) {
             const content = document.getElementById('scriptContent');
             content.innerHTML = `
-                <h3 style="margin-bottom: 16px;">${script.title || 'Demo Video'}</h3>
-                <p style="color: var(--text-dim); margin-bottom: 20px;">
-                    Duration: ${script.total_duration || '60s'} • Music: ${script.music_mood || 'Upbeat'}
+                <p style="color: var(--text-dim); margin-bottom: 20px; font-size: 0.85rem;">
+                    ${script.total_duration || '15s'} · ${script.music_mood || 'Upbeat'}
                 </p>
                 ${(script.scenes || []).map(scene => `
                     <div class="scene">
@@ -659,7 +799,7 @@
                         </div>
                         <div class="scene-visual">📹 ${scene.visual}</div>
                         <div class="scene-narration">"${scene.narration}"</div>
-                        ${scene.text_overlay ? `<div style="margin-top: 8px; color: var(--accent); font-size: 0.8rem;">Text: ${scene.text_overlay}</div>` : ''}
+                        ${scene.text_overlay ? `<div style="margin-top: 8px; color: var(--brown-light); font-size: 0.8rem;">↳ ${scene.text_overlay}</div>` : ''}
                     </div>
                 `).join('')}
             `;
