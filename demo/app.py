@@ -25,6 +25,17 @@ from providers.llm import (
     get_available_llm_providers,
     Message,
 )
+from consistency import ConsistencyManager, SubjectType, ConfidenceLevel
+
+# Global consistency managers by session_id
+_consistency_managers: dict[str, ConsistencyManager] = {}
+
+
+def get_consistency_manager(session_id: str) -> ConsistencyManager:
+    """Get or create a ConsistencyManager for a session."""
+    if session_id not in _consistency_managers:
+        _consistency_managers[session_id] = ConsistencyManager(session_id=session_id)
+    return _consistency_managers[session_id]
 
 load_dotenv()
 
@@ -384,12 +395,13 @@ def chat():
         session["session_id"] = db.create_session()
 
     session_id = session["session_id"]
+    turn_number = len(session["conversation"]) // 2 + 1  # Track conversation turn
 
     # Add user message
     session["conversation"].append({"role": "user", "content": user_message})
     db.add_message(session_id, "user", user_message)
 
-    # Get Gemini response
+    # Get LLM response
     response = chat_with_llm(session["conversation"])
 
     # Add assistant response to history
@@ -413,11 +425,158 @@ def chat():
             if existing and not existing.get("name"):
                 db.rename_session(session_id, product["name"])
 
+    # ============ Visual Consistency Extraction ============
+    # Extract visual details for video consistency using Claude's tool_use
+    extraction_data = None
+    try:
+        # Only extract if Anthropic API is available
+        anthropic_provider = get_llm_provider("anthropic")
+        if anthropic_provider:
+            # Convert conversation to Message format
+            messages = [
+                Message(role=msg["role"], content=msg["content"])
+                for msg in session["conversation"]
+            ]
+
+            extraction_result = anthropic_provider.extract_consistency_data(
+                conversation_history=messages,
+                current_turn=turn_number
+            )
+
+            if extraction_result.get("has_updates"):
+                # Get or create consistency manager for this session
+                manager = get_consistency_manager(session_id)
+
+                # Apply extracted subjects
+                for subject_data in extraction_result.get("subjects", []):
+                    subject_type = subject_data.get("type")
+                    if subject_type == "human":
+                        manager.create_human_subject(
+                            name=subject_data.get("name", "Person"),
+                            role=subject_data.get("role", "protagonist"),
+                            gender=subject_data.get("gender"),
+                            age_range=subject_data.get("age_range")
+                        )
+                    elif subject_type == "animal":
+                        subject = manager.add_subject(
+                            subject_type=SubjectType.ANIMAL,
+                            name=subject_data.get("name"),
+                            role=subject_data.get("role", "pet")
+                        )
+                    elif subject_type == "object":
+                        subject = manager.add_subject(
+                            subject_type=SubjectType.OBJECT,
+                            name=subject_data.get("name"),
+                            role=subject_data.get("role", "product")
+                        )
+
+                # Apply extracted environment
+                if extraction_result.get("environment"):
+                    env_data = extraction_result["environment"]
+                    manager.set_environment(name=env_data.get("name", "Scene"))
+                    manager.update_environment(
+                        turn=turn_number,
+                        confidence=ConfidenceLevel.CONFIRMED if env_data.get("confidence") == "confirmed" else ConfidenceLevel.INFERRED,
+                        setting_type=env_data.get("setting_type"),
+                        location=env_data.get("location"),
+                        time_of_day=env_data.get("time_of_day"),
+                        mood=env_data.get("mood")
+                    )
+
+                # Apply extracted style
+                if extraction_result.get("style"):
+                    style_data = extraction_result["style"]
+                    manager.set_style(name=style_data.get("name", "Visual Style"))
+                    manager.update_style(
+                        turn=turn_number,
+                        confidence=ConfidenceLevel.CONFIRMED if style_data.get("confidence") == "confirmed" else ConfidenceLevel.INFERRED,
+                        style=style_data.get("style"),
+                        tone=style_data.get("tone"),
+                        color_grade=style_data.get("color_grade")
+                    )
+
+                # Include extraction summary in response
+                extraction_data = {
+                    "subjects_count": len(extraction_result.get("subjects", [])),
+                    "has_environment": extraction_result.get("environment") is not None,
+                    "has_style": extraction_result.get("style") is not None,
+                    "raw_extractions": extraction_result.get("raw_extractions", [])
+                }
+
+    except Exception as e:
+        # Non-fatal: extraction is optional enhancement
+        print(f"Consistency extraction error: {e}")
+
+    # Add extraction data to response if available
+    if extraction_data:
+        response["consistency_extraction"] = extraction_data
+
     return jsonify(response)
+
+
+@app.route("/api/consistency-state", methods=["GET"])
+def get_consistency_state():
+    """Get the current visual consistency state for a session."""
+    session_id = session.get("session_id")
+    if not session_id:
+        return jsonify({"error": "No active session"}), 404
+
+    if session_id not in _consistency_managers:
+        return jsonify({
+            "session_id": session_id,
+            "subjects": [],
+            "environment": None,
+            "style": None,
+            "prompt_preview": None
+        })
+
+    manager = _consistency_managers[session_id]
+    state = manager.state
+
+    # Build response with serializable data
+    subjects = []
+    for subject in state.subjects:
+        subject_info = {
+            "id": subject.id,
+            "name": subject.name,
+            "type": subject.subject_type.value,
+            "role": subject.role,
+            "prompt_block": subject.to_prompt_block(detail_level="medium")
+        }
+        subjects.append(subject_info)
+
+    environment = None
+    if state.environment:
+        environment = {
+            "id": state.environment.id,
+            "name": state.environment.name,
+            "prompt_block": state.environment.to_prompt_block(detail_level="medium")
+        }
+
+    style = None
+    if state.style:
+        style = {
+            "id": state.style.id,
+            "name": state.style.name,
+            "prompt_block": state.style.to_prompt_block(detail_level="medium")
+        }
+
+    return jsonify({
+        "session_id": session_id,
+        "subjects": subjects,
+        "environment": environment,
+        "style": style,
+        "prompt_preview": manager.get_prompt_block(detail_level="medium")
+    })
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
+    # Clean up old consistency manager
+    old_session_id = session.get("session_id")
+    if old_session_id and old_session_id in _consistency_managers:
+        del _consistency_managers[old_session_id]
+
     # Create a new session instead of just clearing
     new_session_id = db.create_session()
     session["session_id"] = new_session_id

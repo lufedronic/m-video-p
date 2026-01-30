@@ -46,6 +46,15 @@ class PromptAssembler:
         "buffer": 220,  # Flexibility for compression
     }
 
+    def _get_subject(self, subject_id: str) -> Optional["SubjectSheet"]:
+        """Get a subject by ID from the subjects list."""
+        if not self.state or not self.state.subjects:
+            return None
+        for subject in self.state.subjects:
+            if subject.id == subject_id:
+                return subject
+        return None
+
     def __init__(self, state: Optional["VideoConsistencyState"] = None):
         """
         Initialize assembler with optional consistency state.
@@ -99,9 +108,9 @@ class PromptAssembler:
 
         # 2. Subjects (foreground = full detail, background = minimal)
         for sid in subject_ids:
-            if sid not in self.state.subjects:
+            sheet = self._get_subject(sid)
+            if not sheet:
                 continue
-            sheet = self.state.subjects[sid]
             detail = "full" if sid in foreground_subjects else "minimal"
             subject_block = sheet.to_prompt_block(detail_level=detail)
             if subject_block:
@@ -112,8 +121,8 @@ class PromptAssembler:
             parts.append(action.strip())
 
         # 4. Environment
-        if environment_id and environment_id in self.state.environments:
-            env_sheet = self.state.environments[environment_id]
+        if environment_id and self.state.environment and self.state.environment.id == environment_id:
+            env_sheet = self.state.environment
             env_block = env_sheet.to_prompt_block(detail_level="medium")
             if env_block:
                 parts.append(env_block)
@@ -167,11 +176,12 @@ class PromptAssembler:
 
         # 2. Primary subject only, medium detail
         # For video, focus on the first/main subject
-        if subject_ids and subject_ids[0] in self.state.subjects:
-            main_subject = self.state.subjects[subject_ids[0]]
-            subject_block = main_subject.to_prompt_block(detail_level="medium")
-            if subject_block:
-                parts.append(subject_block)
+        if subject_ids:
+            main_subject = self._get_subject(subject_ids[0])
+            if main_subject:
+                subject_block = main_subject.to_prompt_block(detail_level="medium")
+                if subject_block:
+                    parts.append(subject_block)
 
         # 3. Action (critical for video - gets priority)
         if action:
@@ -182,8 +192,8 @@ class PromptAssembler:
             parts.append(motion_hint.strip())
 
         # 5. Environment (minimal for video)
-        if environment_id and environment_id in self.state.environments:
-            env_sheet = self.state.environments[environment_id]
+        if environment_id and self.state.environment and self.state.environment.id == environment_id:
+            env_sheet = self.state.environment
             env_block = env_sheet.to_prompt_block(detail_level="minimal")
             if env_block:
                 parts.append(env_block)
@@ -222,10 +232,9 @@ class PromptAssembler:
         if not self.state:
             raise ValueError("No consistency state set. Call set_state() first.")
 
-        if subject_id not in self.state.subjects:
+        sheet = self._get_subject(subject_id)
+        if not sheet:
             raise ValueError(f"Subject '{subject_id}' not found in consistency state")
-
-        sheet = self.state.subjects[subject_id]
         parts: list[str] = []
 
         # Style if available (for consistent look)
@@ -415,16 +424,16 @@ class PromptAssembler:
             estimates["style"] = len(style_block)
 
         for sid in subject_ids:
-            if sid in self.state.subjects:
-                sheet = self.state.subjects[sid]
+            sheet = self._get_subject(sid)
+            if sheet:
                 block = sheet.to_prompt_block(detail_level=detail)
                 estimates["subjects"] += len(block)
 
         if action:
             estimates["action"] = len(action)
 
-        if environment_id and environment_id in self.state.environments:
-            env_sheet = self.state.environments[environment_id]
+        if environment_id and self.state.environment and self.state.environment.id == environment_id:
+            env_sheet = self.state.environment
             env_detail = "medium" if prompt_type == "keyframe" else "minimal"
             block = env_sheet.to_prompt_block(detail_level=env_detail)
             estimates["environment"] = len(block)
