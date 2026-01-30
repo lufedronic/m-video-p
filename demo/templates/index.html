@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DemoForge</title>
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --surface: #12121a;
+            --surface2: #1a1a25;
+            --border: #2a2a3a;
+            --text: #e4e4e7;
+            --text-dim: #71717a;
+            --accent: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.3);
+            --success: #22c55e;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            height: 100vh;
+            gap: 1px;
+            background: var(--border);
+        }
+
+        /* Chat Panel */
+        .chat-panel {
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            padding: 20px 30px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .chat-header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent), #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .chat-header p {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            margin-top: 4px;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .message {
+            max-width: 85%;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+        }
+
+        .message-content {
+            padding: 14px 18px;
+            border-radius: 16px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .message.user .message-content {
+            background: var(--accent);
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
+        }
+
+        .assumptions {
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: var(--surface2);
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .assumptions strong {
+            color: var(--accent);
+        }
+
+        .input-area {
+            padding: 20px 30px;
+            border-top: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 14px 18px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        #messageInput:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        #messageInput::placeholder {
+            color: var(--text-dim);
+        }
+
+        button {
+            padding: 14px 24px;
+            background: var(--accent);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Product Canvas Panel */
+        .canvas-panel {
+            background: var(--surface);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .canvas-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .canvas-header h2 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+        }
+
+        .confidence-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .confidence-low { background: #ef4444; }
+        .confidence-mid { background: #f59e0b; }
+        .confidence-high { background: var(--success); }
+
+        .canvas-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .product-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .product-name {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .product-tagline {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            font-style: italic;
+        }
+
+        .field-group {
+            margin-top: 20px;
+        }
+
+        .field-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+
+        .field-value {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: var(--text);
+        }
+
+        .field-value.empty {
+            color: var(--text-dim);
+            font-style: italic;
+        }
+
+        .features-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .feature-tag {
+            padding: 4px 10px;
+            background: var(--surface2);
+            border-radius: 6px;
+            font-size: 0.8rem;
+        }
+
+        .style-badges {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .style-badge {
+            padding: 6px 12px;
+            background: var(--accent-glow);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: var(--accent);
+        }
+
+        .canvas-footer {
+            padding: 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        #generateBtn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--accent), #a855f7);
+            font-size: 1rem;
+        }
+
+        #generateBtn:disabled {
+            background: var(--surface2);
+            color: var(--text-dim);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-dim);
+        }
+
+        .empty-state .icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        /* Loading state */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 14px 18px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            border-bottom-left-radius: 4px;
+            width: fit-content;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: var(--text-dim);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* Script Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--surface);
+            border-radius: 20px;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 30px;
+            margin: 20px;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            font-size: 1.25rem;
+        }
+
+        .close-btn {
+            background: transparent;
+            color: var(--text-dim);
+            padding: 8px;
+        }
+
+        .scene {
+            background: var(--bg);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .scene-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .scene-time {
+            font-size: 0.8rem;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .scene-type {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        .scene-visual {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+
+        .scene-narration {
+            font-size: 0.95rem;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Chat Panel -->
+        <div class="chat-panel">
+            <div class="chat-header">
+                <h1>DemoForge</h1>
+                <p>Describe your product idea. I'll help turn it into a demo video.</p>
+            </div>
+
+            <div class="messages" id="messages">
+                <div class="message assistant">
+                    <div class="message-content">
+                        Hey! Tell me about your product idea. Don't worry about having everything figured out — just give me the basics and I'll start building a picture of what you're creating.
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <input type="text" id="messageInput" placeholder="Describe your product idea..." autofocus>
+                    <button id="sendBtn" onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Product Canvas Panel -->
+        <div class="canvas-panel">
+            <div class="canvas-header">
+                <h2>Product Canvas</h2>
+                <span class="confidence-badge confidence-low" id="confidenceBadge">0% Ready</span>
+            </div>
+
+            <div class="canvas-content" id="canvasContent">
+                <div class="empty-state">
+                    <div class="icon">✨</div>
+                    <p>Your product will take shape here as we talk.</p>
+                </div>
+            </div>
+
+            <div class="canvas-footer">
+                <button id="generateBtn" disabled onclick="generateScript()">
+                    Generate Video Script
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Modal -->
+    <div class="modal" id="scriptModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Video Script</h2>
+                <button class="close-btn" onclick="closeModal()">✕</button>
+            </div>
+            <div id="scriptContent"></div>
+        </div>
+    </div>
+
+    <script>
+        let productUnderstanding = {};
+        let isReady = false;
+
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const generateBtn = document.getElementById('generateBtn');
+
+        inputEl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !sendBtn.disabled) sendMessage();
+        });
+
+        async function sendMessage() {
+            const message = inputEl.value.trim();
+            if (!message) return;
+
+            // Add user message
+            addMessage(message, 'user');
+            inputEl.value = '';
+            sendBtn.disabled = true;
+
+            // Show typing indicator
+            const typingEl = document.createElement('div');
+            typingEl.className = 'message assistant';
+            typingEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+            messagesEl.appendChild(typingEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+
+                const data = await response.json();
+
+                // Remove typing indicator
+                typingEl.remove();
+
+                // Add assistant message
+                let html = `<div class="message-content">${data.message}</div>`;
+                if (data.assumptions_made && data.assumptions_made.length > 0) {
+                    html += `<div class="assumptions"><strong>My assumptions:</strong> ${data.assumptions_made.join(' • ')}</div>`;
+                }
+                addMessageHTML(html, 'assistant');
+
+                // Update product canvas
+                if (data.product_understanding && Object.keys(data.product_understanding).length > 0) {
+                    productUnderstanding = data.product_understanding;
+                    updateCanvas(data.product_understanding, data.confidence);
+                }
+
+                // Update ready state
+                isReady = data.ready_for_video;
+                generateBtn.disabled = !isReady;
+                if (isReady) {
+                    generateBtn.textContent = '🎬 Generate Video Script';
+                }
+
+            } catch (err) {
+                typingEl.remove();
+                addMessage('Something went wrong. Please try again.', 'assistant');
+            }
+
+            sendBtn.disabled = false;
+            inputEl.focus();
+        }
+
+        function addMessage(text, role) {
+            const el = document.createElement('div');
+            el.className = `message ${role}`;
+            el.innerHTML = `<div class="message-content">${escapeHtml(text)}</div>`;
+            messagesEl.appendChild(el);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function addMessageHTML(html, role) {
+            const el = document.createElement('div');
+            el.className = `message ${role}`;
+            el.innerHTML = html;
+            messagesEl.appendChild(el);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function updateCanvas(product, confidence) {
+            const pct = Math.round(confidence * 100);
+            const badge = document.getElementById('confidenceBadge');
+            badge.textContent = `${pct}% Ready`;
+            badge.className = 'confidence-badge ' +
+                (pct < 40 ? 'confidence-low' : pct < 75 ? 'confidence-mid' : 'confidence-high');
+
+            const content = document.getElementById('canvasContent');
+            content.innerHTML = `
+                <div class="product-card">
+                    <div class="product-name">${product.name || 'Untitled Product'}</div>
+                    <div class="product-tagline">${product.tagline || 'No tagline yet'}</div>
+
+                    <div class="style-badges">
+                        ${product.tone ? `<span class="style-badge">${product.tone}</span>` : ''}
+                        ${product.visual_style ? `<span class="style-badge">${product.visual_style}</span>` : ''}
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <div class="field-label">Problem</div>
+                    <div class="field-value ${!product.problem ? 'empty' : ''}">${product.problem || 'Not yet defined'}</div>
+                </div>
+
+                <div class="field-group">
+                    <div class="field-label">Solution</div>
+                    <div class="field-value ${!product.solution ? 'empty' : ''}">${product.solution || 'Not yet defined'}</div>
+                </div>
+
+                <div class="field-group">
+                    <div class="field-label">Target User</div>
+                    <div class="field-value ${!product.target_user ? 'empty' : ''}">${product.target_user || 'Not yet defined'}</div>
+                </div>
+
+                <div class="field-group">
+                    <div class="field-label">Key Features</div>
+                    ${product.key_features && product.key_features.length > 0
+                        ? `<div class="features-list">${product.key_features.map(f => `<span class="feature-tag">${f}</span>`).join('')}</div>`
+                        : '<div class="field-value empty">No features yet</div>'
+                    }
+                </div>
+            `;
+        }
+
+        async function generateScript() {
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+
+            try {
+                const response = await fetch('/generate-script', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ product_understanding: productUnderstanding })
+                });
+
+                const script = await response.json();
+
+                if (script.error) {
+                    alert('Error generating script: ' + script.error);
+                    return;
+                }
+
+                showScript(script);
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.textContent = '🎬 Generate Video Script';
+            }
+        }
+
+        function showScript(script) {
+            const content = document.getElementById('scriptContent');
+            content.innerHTML = `
+                <h3 style="margin-bottom: 16px;">${script.title || 'Demo Video'}</h3>
+                <p style="color: var(--text-dim); margin-bottom: 20px;">
+                    Duration: ${script.total_duration || '60s'} • Music: ${script.music_mood || 'Upbeat'}
+                </p>
+                ${(script.scenes || []).map(scene => `
+                    <div class="scene">
+                        <div class="scene-header">
+                            <span class="scene-time">${scene.timestamp}</span>
+                            <span class="scene-type">${scene.type}</span>
+                        </div>
+                        <div class="scene-visual">📹 ${scene.visual}</div>
+                        <div class="scene-narration">"${scene.narration}"</div>
+                        ${scene.text_overlay ? `<div style="margin-top: 8px; color: var(--accent); font-size: 0.8rem;">Text: ${scene.text_overlay}</div>` : ''}
+                    </div>
+                `).join('')}
+            `;
+            document.getElementById('scriptModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('scriptModal').classList.remove('active');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

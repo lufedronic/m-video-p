@@ -45,14 +45,14 @@ response = client.models.generate_content(
     model="gemini-3-flash-preview",
     contents="Your prompt here",
     config={
-        "thinking_config": {"thinking_budget": 10000}  # High thinking
+        "thinking_config": {"thinking_level": "high"}  # Options: minimal, low, medium, high
     }
 )
 ```
 
 **Key points:**
 - Use `google-genai` package (not the old `google-generativeai`)
-- Thinking budget: 0-24576 tokens (use 10000+ for complex reasoning)
+- Gemini 3 uses `thinking_level` (minimal/low/medium/high) instead of `thinking_budget`
 - Access thinking: `response.candidates[0].content.parts` (look for thought parts)
 
 ### Research Documents
