@@ -128,18 +128,32 @@ def make_api_request(endpoint, payload, async_mode=True, sse_mode=False):
 
     if sse_mode:
         # Handle SSE streaming response
+        print(f">>> SSE request to {url}")
+        print(f">>> Payload: {json.dumps(payload, indent=2)[:500]}")
         response = requests.post(url, headers=headers, json=payload, timeout=120, stream=True)
+        print(f">>> Response status: {response.status_code}")
+
+        if response.status_code != 200:
+            # Try to get error from response
+            try:
+                error_data = response.json()
+                print(f">>> Error response: {error_data}")
+                return error_data
+            except:
+                return {"error": f"HTTP {response.status_code}: {response.text[:200]}"}
+
         final_data = None
         for line in response.iter_lines():
             if line:
                 line = line.decode('utf-8')
+                print(f">>> SSE line: {line[:200]}")
                 if line.startswith('data:'):
                     try:
                         data = json.loads(line[5:])
                         final_data = data
                     except json.JSONDecodeError:
                         continue
-        return final_data if final_data else {"error": "No data received"}
+        return final_data if final_data else {"error": "No data received from SSE stream"}
     else:
         response = requests.post(url, headers=headers, json=payload, timeout=120)
         return response.json()
@@ -201,8 +215,10 @@ def generate():
     }
 
     try:
+        print(f"=== Generate: model={model}, type={model_config['type']}, image_url={image_url} ===")
         if model_config["type"] == "image":
             if image_url:
+                print(">>> Image EDITING mode")
                 # Image EDITING mode - use multimodal endpoint
                 payload = {
                     "model": model,
@@ -237,6 +253,7 @@ def generate():
                     entry["error"] = response.get("message", str(response))
             else:
                 # Pure TEXT-TO-IMAGE mode - use multimodal endpoint with enable_interleave + SSE
+                print(">>> Text-to-Image mode (SSE)")
                 payload = {
                     "model": model,
                     "input": {
@@ -248,9 +265,10 @@ def generate():
                         ]
                     },
                     "parameters": {
-                        "n": 1,
-                        "size": "1280*1280",
+                        "max_images": 1,
+                        "size": "1024*1024",
                         "enable_interleave": True,
+                        "stream": True,
                     }
                 }
                 response = make_api_request(model_config["endpoint"], payload, async_mode=False, sse_mode=True)

@@ -4,7 +4,10 @@ m(video)p - Generate product demo videos from just an idea
 import os
 import json
 import requests
-from flask import Flask, request, jsonify, render_template, session
+import subprocess
+import tempfile
+import uuid
+from flask import Flask, request, jsonify, render_template, session, send_file
 from dotenv import load_dotenv
 from google import genai
 
@@ -158,10 +161,16 @@ def generate_script():
 
 Product: {json.dumps(product, indent=2)}
 
-CONSTRAINTS:
-- Generate THREE separate 5-second video segments that will be combined into one 15-second video
+CRITICAL CONSTRAINTS:
+- Generate THREE separate 5-second video segments that will be combined into ONE COHESIVE 15-second video
 - AI video CANNOT render ANY text. NEVER include text, words, UI, screens with content, or readable elements
 - Use ONLY: visual metaphors, light/particle effects, human emotions, object transformations, environmental changes
+
+VISUAL CONSISTENCY IS PARAMOUNT:
+- ALL 4 keyframes MUST share the EXACT SAME: subject/person, environment/location, camera angle style, lighting setup, color palette
+- Think of it as ONE continuous shot with transformation - the SAME person in the SAME room with lighting/mood changes
+- Each keyframe prompt MUST explicitly reference the consistent elements (e.g., "The same person from previous frames...", "In the same minimalist office...")
+- Use a SINGLE recurring visual motif/symbol throughout (e.g., a glowing orb, light particles, color shift)
 
 Structure (3 segments, 5 seconds each):
 1. HOOK (0-5s): Visual attention grab - show the problem through emotion/environment
@@ -171,28 +180,55 @@ Structure (3 segments, 5 seconds each):
 Output as JSON:
 {{
   "title": "Video title",
+  "visual_style": "DEFINE FIRST: Exact cinematic style that ALL frames must follow (e.g., 'Photorealistic, shallow depth of field, warm cinematic lighting, 35mm lens look')",
+  "color_palette": "DEFINE FIRST: Exact colors for ALL frames (e.g., 'Deep navy blue shadows, warm amber highlights, soft cream midtones')",
+  "consistent_elements": "DEFINE FIRST: Elements that appear in EVERY frame (e.g., 'A 30-year-old woman with dark hair, minimalist white office, soft morning light from left window')",
+  "visual_motif": "DEFINE FIRST: The recurring symbol/effect (e.g., 'Soft golden light particles that grow brighter through the sequence')",
+  "keyframes": [
+    {{
+      "frame": 1,
+      "name": "opening",
+      "image_prompt": "DETAILED 80-100 word prompt. START with the consistent_elements, THEN add this frame's unique state: problem/tension visible. Include: exact composition, subject expression/posture showing frustration, the visual_motif in its initial dim state, color_palette applied. NO TEXT/UI/WORDS."
+    }},
+    {{
+      "frame": 2,
+      "name": "transition_1_2",
+      "image_prompt": "DETAILED 80-100 word prompt. START by restating consistent_elements ('The same [person] in the same [environment]...'). Show: first hint of transformation, visual_motif beginning to glow/activate, subject's expression shifting to curiosity. Maintain EXACT same camera angle and lighting direction. NO TEXT/UI/WORDS."
+    }},
+    {{
+      "frame": 3,
+      "name": "transition_2_3",
+      "image_prompt": "DETAILED 80-100 word prompt. START by restating consistent_elements. Show: transformation in full effect, visual_motif at peak brightness/activity, subject engaged and hopeful. SAME environment now feels warmer/brighter. Maintain camera consistency. NO TEXT/UI/WORDS."
+    }},
+    {{
+      "frame": 4,
+      "name": "closing",
+      "image_prompt": "DETAILED 80-100 word prompt. START by restating consistent_elements. Show: resolution achieved, visual_motif settled into satisfying final state, subject expressing relief/joy/satisfaction. Environment at its warmest/brightest. SAME camera angle, lighting now at peak warmth. NO TEXT/UI/WORDS."
+    }}
+  ],
   "segments": [
     {{
       "segment": 1,
       "name": "hook",
-      "duration": "5s",
-      "video_prompt": "EXTREMELY DETAILED 5-second video prompt (150-200 words). Be hyper-specific: exact camera movement (slow dolly in, 45-degree arc, etc), precise lighting setup (key light position, rim lighting, color temperature), detailed environment (materials, textures, atmosphere), frame-by-frame subject actions, specific color hex codes or references, emotional tone. NO TEXT/UI/WORDS. Cinematic 4K quality. Include render style (photorealistic, Unreal Engine 5, etc)."
+      "first_frame": 1,
+      "last_frame": 2,
+      "motion_description": "Subtle motion only - small movements, breathing, the visual_motif beginning to appear (1-2 sentences)"
     }},
     {{
       "segment": 2,
       "name": "magic",
-      "duration": "5s",
-      "video_prompt": "EXTREMELY DETAILED 5-second video prompt (150-200 words). Must visually connect to segment 1 with consistent lighting/color. Describe the transformation frame-by-frame: what morphs, how light changes, particle effects, camera reaction. Abstract but SPECIFIC. NO TEXT/UI/WORDS."
+      "first_frame": 2,
+      "last_frame": 3,
+      "motion_description": "The transformation motion - visual_motif expanding/growing, lighting shift, subject's posture changing (1-2 sentences)"
     }},
     {{
       "segment": 3,
       "name": "payoff",
-      "duration": "5s",
-      "video_prompt": "EXTREMELY DETAILED 5-second video prompt (150-200 words). Visual resolution of the story. Describe: final camera position, lighting climax, subject's emotional state or environmental transformation, how motion settles. Must feel like satisfying conclusion. NO TEXT/UI/WORDS."
+      "first_frame": 3,
+      "last_frame": 4,
+      "motion_description": "Resolution motion - visual_motif settling, subject relaxing into satisfaction, final lighting bloom (1-2 sentences)"
     }}
-  ],
-  "visual_style": "Overall cinematic style description",
-  "color_palette": "Primary colors used across all segments"
+  ]
 }}"""
 
     try:
@@ -236,60 +272,137 @@ WAN_API_URL = "http://localhost:5000"
 
 @app.route("/generate-video", methods=["POST"])
 def generate_video():
-    """Send 3 segment prompts to Wan API for parallel video generation"""
+    """Generate videos using keyframe-to-video approach for cohesive transitions"""
     data = request.json
+    keyframes = data.get("keyframes", [])
     segments = data.get("segments", [])
 
-    # Fallback for old single-prompt format
-    if not segments and data.get("video_prompt"):
-        segments = [{"video_prompt": data.get("video_prompt"), "segment": 1}]
+    print(f"=== Keyframe-to-Video Generation ===")
+    print(f"Keyframes: {len(keyframes)}, Segments: {len(segments)}")
 
-    print(f"=== Generating {len(segments)} video segments ===")
-
-    task_ids = []
-    errors = []
+    if not keyframes or not segments:
+        return jsonify({"error": "Missing keyframes or segments"}), 400
 
     try:
-        # Launch all segments in parallel
-        for seg in segments:
-            prompt = seg.get("video_prompt", "")
-            segment_num = seg.get("segment", 1)
-            print(f"Segment {segment_num}: {prompt[:100]}...")
+        # Step 1: Generate all keyframe images in parallel
+        print("Step 1: Generating keyframe images...")
+        image_tasks = []
+
+        for kf in keyframes:
+            frame_num = kf.get("frame")
+            prompt = kf.get("image_prompt", "")
+            print(f"  Frame {frame_num}: {prompt[:80]}...")
 
             response = requests.post(
                 f"{WAN_API_URL}/api/generate",
                 json={
-                    "model": "wan2.6-t2v",
-                    "prompt": prompt,
-                    "duration": 5
+                    "model": "wan2.6-image",
+                    "prompt": prompt
                 },
-                timeout=30
+                timeout=180
             )
 
             result = response.json()
-            print(f"Segment {segment_num} response: {result.get('status')}")
-
-            if result.get("status") == "processing":
-                task_ids.append({
-                    "segment": segment_num,
-                    "task_id": result.get("task_id"),
-                    "status": "processing"
+            if result.get("status") == "completed" and result.get("result", {}).get("urls"):
+                # Sync image generation completed immediately
+                image_tasks.append({
+                    "frame": frame_num,
+                    "status": "completed",
+                    "url": result["result"]["urls"][0]
+                })
+            elif result.get("task_id"):
+                # Async - need to poll
+                image_tasks.append({
+                    "frame": frame_num,
+                    "status": "processing",
+                    "task_id": result.get("task_id")
                 })
             else:
-                errors.append(f"Segment {segment_num}: {result.get('error', 'Unknown error')}")
-
-        if errors and not task_ids:
-            return jsonify({"error": "; ".join(errors)}), 500
+                image_tasks.append({
+                    "frame": frame_num,
+                    "status": "error",
+                    "error": result.get("error", "Failed to start image generation")
+                })
 
         return jsonify({
-            "status": "processing",
-            "segments": task_ids,
-            "total_segments": len(segments),
-            "message": f"Generating {len(task_ids)} video segments in parallel"
+            "status": "generating_keyframes",
+            "phase": "keyframes",
+            "keyframe_tasks": image_tasks,
+            "segments": segments,
+            "message": f"Generating {len(keyframes)} keyframe images"
         })
 
     except requests.exceptions.ConnectionError:
-        return jsonify({"error": "Wan API not running. Start it with: cd /Users/lucas/dev/hackersquad && ./run.sh"}), 500
+        return jsonify({"error": "Wan API not running"}), 500
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/generate-videos-from-keyframes", methods=["POST"])
+def generate_videos_from_keyframes():
+    """Generate videos from keyframe images using kf2v model"""
+    data = request.json
+    keyframe_urls = data.get("keyframe_urls", {})  # {1: url, 2: url, 3: url, 4: url}
+    segments = data.get("segments", [])
+
+    print(f"=== Generating videos from keyframes ===")
+    print(f"Keyframe URLs: {list(keyframe_urls.keys())}")
+
+    video_tasks = []
+
+    try:
+        for seg in segments:
+            segment_num = seg.get("segment")
+            first_frame = seg.get("first_frame")
+            last_frame = seg.get("last_frame")
+            motion = seg.get("motion_description", "")
+
+            first_url = keyframe_urls.get(str(first_frame))
+            last_url = keyframe_urls.get(str(last_frame))
+
+            if not first_url or not last_url:
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "error",
+                    "error": f"Missing keyframe URLs for frames {first_frame} or {last_frame}"
+                })
+                continue
+
+            print(f"  Segment {segment_num}: frames {first_frame}→{last_frame}")
+
+            response = requests.post(
+                f"{WAN_API_URL}/api/generate",
+                json={
+                    "model": "wan2.2-kf2v-flash",
+                    "prompt": motion,
+                    "first_frame_url": first_url,
+                    "last_frame_url": last_url
+                },
+                timeout=180
+            )
+
+            result = response.json()
+            if result.get("status") == "processing":
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "processing",
+                    "task_id": result.get("task_id")
+                })
+            else:
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "error",
+                    "error": result.get("error", "Failed to start video generation")
+                })
+
+        return jsonify({
+            "status": "generating_videos",
+            "phase": "videos",
+            "segments": video_tasks,
+            "message": f"Generating {len(video_tasks)} video segments from keyframes"
+        })
+
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
@@ -301,7 +414,7 @@ def video_status(task_id):
     try:
         response = requests.get(
             f"{WAN_API_URL}/api/task/{task_id}",
-            timeout=30
+            timeout=180
         )
         result = response.json()
         print(f"Task {task_id} status: {result}")
@@ -327,7 +440,7 @@ def video_status_multi():
         try:
             response = requests.get(
                 f"{WAN_API_URL}/api/task/{task_id}",
-                timeout=30
+                timeout=180
             )
             result = response.json()
 
@@ -362,6 +475,76 @@ def video_status_multi():
         "all_completed": all_completed,
         "any_failed": any_failed
     })
+
+
+@app.route("/stitch-videos", methods=["POST"])
+def stitch_videos():
+    """Download and stitch multiple video segments using ffmpeg"""
+    data = request.json
+    video_urls = data.get("videos", [])  # [{segment: 1, url: "..."}, ...]
+
+    if len(video_urls) < 2:
+        return jsonify({"error": "Need at least 2 videos to stitch"}), 400
+
+    # Sort by segment
+    video_urls = sorted(video_urls, key=lambda x: x.get("segment", 0))
+
+    print(f"=== Stitching {len(video_urls)} videos ===")
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Download all videos
+            video_files = []
+            for i, v in enumerate(video_urls):
+                url = v.get("url")
+                print(f"Downloading segment {i+1}...")
+                resp = requests.get(url, timeout=60)
+                if resp.status_code != 200:
+                    return jsonify({"error": f"Failed to download segment {i+1}"}), 500
+
+                filepath = os.path.join(tmpdir, f"seg_{i+1}.mp4")
+                with open(filepath, "wb") as f:
+                    f.write(resp.content)
+                video_files.append(filepath)
+
+            # Create concat file for ffmpeg
+            concat_file = os.path.join(tmpdir, "concat.txt")
+            with open(concat_file, "w") as f:
+                for vf in video_files:
+                    f.write(f"file '{vf}'\n")
+
+            # Output path
+            output_filename = f"stitched_{uuid.uuid4().hex[:8]}.mp4"
+            output_path = os.path.join("static", output_filename)
+            os.makedirs("static", exist_ok=True)
+
+            # Run ffmpeg
+            print("Running ffmpeg...")
+            result = subprocess.run([
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_file,
+                "-c", "copy",
+                output_path
+            ], capture_output=True, text=True, timeout=120)
+
+            if result.returncode != 0:
+                print(f"ffmpeg error: {result.stderr}")
+                return jsonify({"error": f"ffmpeg failed: {result.stderr[:200]}"}), 500
+
+            print(f"Stitched video saved to {output_path}")
+
+            return jsonify({
+                "status": "completed",
+                "url": f"/static/{output_filename}"
+            })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "ffmpeg timed out"}), 500
+    except Exception as e:
+        print(f"Stitch error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
