@@ -3,6 +3,7 @@ m(video)p - Generate product demo videos from just an idea
 """
 import os
 import json
+import requests
 from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
 from google import genai
@@ -43,14 +44,15 @@ For each response, you MUST output valid JSON with this structure:
 }
 
 IMPORTANT CONSTRAINTS:
-1. Videos are max 15 seconds - focus on ONE killer moment, not a product tour. Think "viral hook" not "explainer video".
-2. AI video cannot render readable text/UI reliably. Turn this into a FEATURE by recommending stylized approaches:
-   - Wireframe aesthetic: text shown as gray bars/lines (like real UI wireframes, "greeking")
-   - Shallow depth of field: screen slightly blurred, human/context sharp
-   - Abstract/symbolic UI: glowing cards, floating shapes, animated icons
-   - This communicates "concept" which fits a POC video and reduces cognitive load
+1. Videos are 3 segments of 5 seconds each (15s total) - focus on ONE killer moment per segment.
+2. AI video CANNOT render text AT ALL. NEVER include any text, words, letters, numbers, or UI with readable content. Instead use:
+   - Pure visual metaphors: glowing orbs, light trails, particle effects, abstract shapes
+   - Symbolic representations: icons transform, objects morph, energy flows
+   - Human emotions/reactions: faces, gestures, body language
+   - Environmental storytelling: lighting changes, camera movement, atmosphere shifts
+   - NO screens showing text, NO text overlays, NO written words of any kind
 
-Start with LOW confidence and build up as you learn more. Mark ready_for_video=true only when confidence > 0.8 and you have enough detail for a compelling 15-second demo.
+Start with LOW confidence and build up as you learn more. Mark ready_for_video=true only when confidence > 0.8 and you have enough detail for a compelling 10-second demo.
 
 Be concise. Ask 1-2 questions max per turn. Make bold guesses - it's easier for users to correct than to describe from scratch."""
 
@@ -157,32 +159,40 @@ def generate_script():
 Product: {json.dumps(product, indent=2)}
 
 CONSTRAINTS:
-- Max 15 seconds. This is a viral hook, not an explainer. Focus on ONE killer moment.
-- AI video CANNOT render readable text/UI. Design visuals that work around this:
-  * Use wireframe aesthetic: represent text as gray bars/lines (standard "greeking" convention)
-  * Use shallow depth of field: screen slightly soft, human/environment sharp
-  * Use abstract/symbolic UI: glowing cards, floating shapes, animated icons
-  * This "concept visualization" style communicates POC and focuses viewers on flow, not content
+- Generate THREE separate 5-second video segments that will be combined into one 15-second video
+- AI video CANNOT render ANY text. NEVER include text, words, UI, screens with content, or readable elements
+- Use ONLY: visual metaphors, light/particle effects, human emotions, object transformations, environmental changes
 
-Create a script with 2-3 scenes max:
-1. Hook (0-3s): Instant attention grab - the problem or "what if"
-2. Magic moment (3-12s): Show the ONE thing that makes this product special
-3. Payoff (12-15s): Result + product name + CTA
+Structure (3 segments, 5 seconds each):
+1. HOOK (0-5s): Visual attention grab - show the problem through emotion/environment
+2. MAGIC (5-10s): The transformation - abstract visual representation of the solution
+3. PAYOFF (10-15s): The result - human satisfaction, visual resolution, brand feeling
 
 Output as JSON:
 {{
   "title": "Video title",
-  "scenes": [
+  "segments": [
     {{
-      "timestamp": "0:00-0:03",
-      "type": "hook",
-      "visual": "Description of what's shown",
-      "narration": "Voiceover text (keep it SHORT)",
-      "text_overlay": "On-screen text if any"
+      "segment": 1,
+      "name": "hook",
+      "duration": "5s",
+      "video_prompt": "EXTREMELY DETAILED 5-second video prompt (150-200 words). Be hyper-specific: exact camera movement (slow dolly in, 45-degree arc, etc), precise lighting setup (key light position, rim lighting, color temperature), detailed environment (materials, textures, atmosphere), frame-by-frame subject actions, specific color hex codes or references, emotional tone. NO TEXT/UI/WORDS. Cinematic 4K quality. Include render style (photorealistic, Unreal Engine 5, etc)."
+    }},
+    {{
+      "segment": 2,
+      "name": "magic",
+      "duration": "5s",
+      "video_prompt": "EXTREMELY DETAILED 5-second video prompt (150-200 words). Must visually connect to segment 1 with consistent lighting/color. Describe the transformation frame-by-frame: what morphs, how light changes, particle effects, camera reaction. Abstract but SPECIFIC. NO TEXT/UI/WORDS."
+    }},
+    {{
+      "segment": 3,
+      "name": "payoff",
+      "duration": "5s",
+      "video_prompt": "EXTREMELY DETAILED 5-second video prompt (150-200 words). Visual resolution of the story. Describe: final camera position, lighting climax, subject's emotional state or environmental transformation, how motion settles. Must feel like satisfying conclusion. NO TEXT/UI/WORDS."
     }}
   ],
-  "music_mood": "Suggested music style",
-  "total_duration": "15s"
+  "visual_style": "Overall cinematic style description",
+  "color_palette": "Primary colors used across all segments"
 }}"""
 
     try:
@@ -218,6 +228,140 @@ Output as JSON:
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+# Wan API integration
+WAN_API_URL = "http://localhost:5000"
+
+
+@app.route("/generate-video", methods=["POST"])
+def generate_video():
+    """Send 3 segment prompts to Wan API for parallel video generation"""
+    data = request.json
+    segments = data.get("segments", [])
+
+    # Fallback for old single-prompt format
+    if not segments and data.get("video_prompt"):
+        segments = [{"video_prompt": data.get("video_prompt"), "segment": 1}]
+
+    print(f"=== Generating {len(segments)} video segments ===")
+
+    task_ids = []
+    errors = []
+
+    try:
+        # Launch all segments in parallel
+        for seg in segments:
+            prompt = seg.get("video_prompt", "")
+            segment_num = seg.get("segment", 1)
+            print(f"Segment {segment_num}: {prompt[:100]}...")
+
+            response = requests.post(
+                f"{WAN_API_URL}/api/generate",
+                json={
+                    "model": "wan2.6-t2v",
+                    "prompt": prompt,
+                    "duration": 5
+                },
+                timeout=30
+            )
+
+            result = response.json()
+            print(f"Segment {segment_num} response: {result.get('status')}")
+
+            if result.get("status") == "processing":
+                task_ids.append({
+                    "segment": segment_num,
+                    "task_id": result.get("task_id"),
+                    "status": "processing"
+                })
+            else:
+                errors.append(f"Segment {segment_num}: {result.get('error', 'Unknown error')}")
+
+        if errors and not task_ids:
+            return jsonify({"error": "; ".join(errors)}), 500
+
+        return jsonify({
+            "status": "processing",
+            "segments": task_ids,
+            "total_segments": len(segments),
+            "message": f"Generating {len(task_ids)} video segments in parallel"
+        })
+
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "Wan API not running. Start it with: cd /Users/lucas/dev/hackersquad && ./run.sh"}), 500
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/video-status/<task_id>")
+def video_status(task_id):
+    """Check video generation status for single task"""
+    try:
+        response = requests.get(
+            f"{WAN_API_URL}/api/task/{task_id}",
+            timeout=30
+        )
+        result = response.json()
+        print(f"Task {task_id} status: {result}")
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/video-status-multi", methods=["POST"])
+def video_status_multi():
+    """Check status of multiple video segments"""
+    data = request.json
+    segments = data.get("segments", [])
+
+    results = []
+    all_completed = True
+    any_failed = False
+
+    for seg in segments:
+        task_id = seg.get("task_id")
+        segment_num = seg.get("segment")
+
+        try:
+            response = requests.get(
+                f"{WAN_API_URL}/api/task/{task_id}",
+                timeout=30
+            )
+            result = response.json()
+
+            segment_result = {
+                "segment": segment_num,
+                "task_id": task_id,
+                "status": result.get("status"),
+                "task_status": result.get("task_status")
+            }
+
+            if result.get("status") == "completed":
+                segment_result["url"] = result.get("result", {}).get("url")
+            elif result.get("status") == "error":
+                segment_result["error"] = result.get("error")
+                any_failed = True
+            else:
+                all_completed = False
+
+            results.append(segment_result)
+
+        except Exception as e:
+            results.append({
+                "segment": segment_num,
+                "task_id": task_id,
+                "status": "error",
+                "error": str(e)
+            })
+            any_failed = True
+
+    return jsonify({
+        "segments": results,
+        "all_completed": all_completed,
+        "any_failed": any_failed
+    })
 
 
 if __name__ == "__main__":

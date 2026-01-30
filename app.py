@@ -30,7 +30,8 @@ MODELS = {
         "description": "Text to Video (2-15s, 720P/1080P)",
         "endpoint": "/services/aigc/video-generation/video-synthesis",
         "sync": False,  # HTTP only, no SDK support
-        "params": {"size": "1280*720", "duration": 5},
+        "params": {"size": "1280*720", "duration": 5, "prompt_extend": True},
+        "default_negative_prompt": "blurry, low quality, distorted, deformed, ugly, bad anatomy",
     },
     # Image to Video
     "wan2.6-i2v": {
@@ -273,6 +274,10 @@ def generate():
         elif model_config["type"] == "video":
             # Video generation
             input_data = {"prompt": prompt or ""}
+
+            # Add default negative prompt if configured
+            if model_config.get("default_negative_prompt"):
+                input_data["negative_prompt"] = model_config["default_negative_prompt"]
 
             # Add image URL for i2v models
             if model_config.get("requires_image") and image_url:
