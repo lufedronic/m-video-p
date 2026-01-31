@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Quick start script for m(video)p demo server
+cd "$(dirname "$0")"
+
+# Kill any existing server on port 5001
+lsof -ti:5001 | xargs kill -9 2>/dev/null
+
+# Use parent venv or local venv
+if [ -f "../venv/bin/python" ]; then
+    PYTHON="../venv/bin/python"
+elif [ -f "venv/bin/python" ]; then
+    PYTHON="venv/bin/python"
+else
+    PYTHON="python3"
+fi
+
+echo "Starting m(video)p on http://localhost:5001"
+exec $PYTHON app.py

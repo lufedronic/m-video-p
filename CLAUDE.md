@@ -1,5 +1,11 @@
 # HackerSquad - AI Product Demo Video Generator
 
+## Quick Start
+
+```bash
+demo/start        # Start server at http://localhost:5001
+```
+
 ## Project Vision
 
 **Goal:** Enable people to test product ideas without building any product. Using AI image/video models, generate "launch-style" demo videos from just a product description.
