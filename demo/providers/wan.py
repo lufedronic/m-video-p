@@ -116,9 +116,23 @@ class WanVideoProvider(VideoProvider):
         prompt: str,
         first_frame: Optional[ImageData] = None,
         last_frame: Optional[ImageData] = None,
+        reference_images: Optional[list[str]] = None,
         **kwargs
     ) -> GenerationTask:
-        """Generate video using wan2.2-kf2v-flash (keyframe to video)."""
+        """Generate video using wan2.2-kf2v-flash (keyframe to video).
+
+        If reference_images are provided, delegates to generate_video_r2v.
+        """
+        # If reference images provided, use R2V mode
+        if reference_images:
+            return self.generate_video_r2v(
+                prompt=prompt,
+                reference_images=reference_images,
+                first_frame=first_frame,
+                last_frame=last_frame,
+                **kwargs
+            )
+
         task_id = str(uuid.uuid4())
         task = GenerationTask(
             provider=self.name,
@@ -159,6 +173,87 @@ class WanVideoProvider(VideoProvider):
             else:
                 task.status = "error"
                 task.error = result.get("error", "Failed to start video generation")
+
+        except requests.exceptions.ConnectionError:
+            task.status = "error"
+            task.error = "Wan API not running at " + self.api_url
+        except Exception as e:
+            task.status = "error"
+            task.error = str(e)
+
+        return task
+
+    def generate_video_r2v(
+        self,
+        prompt: str,
+        reference_images: list[str],
+        first_frame: Optional[ImageData] = None,
+        last_frame: Optional[ImageData] = None,
+        **kwargs
+    ) -> GenerationTask:
+        """Generate video using wan2.6-r2v (reference-to-video) mode.
+
+        R2V mode preserves visual characteristics of subjects by using
+        reference images during video generation.
+
+        Args:
+            prompt: Video generation prompt (max 800 chars for Wan 2.6)
+            reference_images: List of reference image URLs to preserve visual consistency
+            first_frame: Optional first frame image
+            last_frame: Optional last frame image
+            **kwargs: Additional parameters
+
+        Returns:
+            GenerationTask tracking the video generation
+        """
+        task_id = str(uuid.uuid4())
+        task = GenerationTask(
+            provider=self.name,
+            task_type="video",
+            task_id=task_id,
+            status="processing"
+        )
+
+        # Get URLs for the frames - Wan requires URLs
+        first_url = first_frame.url if first_frame else None
+        last_url = last_frame.url if last_frame else None
+
+        if not first_url or not last_url:
+            task.status = "error"
+            task.error = "Wan R2V mode requires image URLs for first and last frames"
+            return task
+
+        try:
+            # Build request payload for R2V model
+            payload = {
+                "model": "wan2.6-r2v",
+                "prompt": prompt[:800],  # Enforce 800 char limit for Wan 2.6
+                "first_frame_url": first_url,
+                "last_frame_url": last_url,
+                "reference_images": reference_images,
+            }
+
+            response = requests.post(
+                f"{self.api_url}/api/generate",
+                json=payload,
+                timeout=self.timeout
+            )
+            result = response.json()
+
+            if result.get("status") == "processing":
+                task.task_id = result.get("task_id", task_id)
+                task.status = "processing"
+                task.provider_data = {
+                    "wan_task_id": result["task_id"],
+                    "mode": "r2v",
+                    "reference_count": len(reference_images)
+                }
+            elif result.get("status") == "completed":
+                task.status = "completed"
+                task.result_url = result.get("result", {}).get("url")
+            else:
+                task.status = "error"
+                task.error = result.get("error", "Failed to start R2V video generation")
 
         except requests.exceptions.ConnectionError:
             task.status = "error"

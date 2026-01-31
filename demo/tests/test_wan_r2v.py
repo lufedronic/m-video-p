@@ -2,7 +2,7 @@
 Tests for Wan 2.6 Reference-to-Video (R2V) mode (Phase 5).
 
 Run with:
-    pytest demo/tests/test_wan_r2v.py -v
+    cd demo && pytest tests/test_wan_r2v.py -v
 
 Success criteria: All tests must pass.
 
@@ -12,6 +12,10 @@ These tests verify:
 3. Prompt compression for 800-char limit
 4. Fallback to standard mode when no references
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import json
@@ -160,7 +164,7 @@ class TestPromptCompression:
         """Long prompts should be compressed to under 800 chars."""
         from consistency import PromptAssembler
 
-        # Create a long prompt
+        # Create a long prompt (must be > 800 characters)
         long_prompt = (
             "A very extremely detailed photorealistic cinematic scene with "
             "a beautiful young woman in her late twenties with long flowing "
@@ -173,7 +177,8 @@ class TestPromptCompression:
             "which casts a cool blue glow on her features while the warm "
             "ambient lighting fills the rest of the room with golden tones "
             "and the camera slowly pushes in towards her face capturing "
-            "her emotional reaction in stunning 4K cinematic detail"
+            "her emotional reaction in stunning 4K cinematic detail with "
+            "professional color grading and beautiful bokeh in the background"
         )
 
         assert len(long_prompt) > 800  # Verify it's actually long
