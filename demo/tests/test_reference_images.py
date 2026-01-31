@@ -2,7 +2,7 @@
 Tests for reference image generation (Phase 3).
 
 Run with:
-    pytest demo/tests/test_reference_images.py -v
+    cd demo && pytest tests/test_reference_images.py -v
 
 Success criteria: All tests must pass.
 
@@ -11,6 +11,10 @@ These tests verify:
 2. Reference image endpoint behavior
 3. Storage of reference URLs in subjects
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import json
