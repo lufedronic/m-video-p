@@ -19,6 +19,9 @@
             --text: #f5f0e8;
             --text-dim: #8a8070;
             --success: #7dad68;
+            --error: #d96c6c;
+            --success-dim: rgba(125, 173, 104, 0.15);
+            --error-dim: rgba(217, 108, 108, 0.15);
         }
 
         * {
@@ -411,6 +414,244 @@
 
         .assumptions strong {
             color: var(--brown-light);
+        }
+
+        /* Structured Response Components */
+        .response-structured {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .response-message {
+            padding: 16px 20px;
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 16px;
+            border-bottom-left-radius: 4px;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .response-questions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .question-card {
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 12px;
+            padding: 16px;
+            transition: border-color 0.2s;
+        }
+
+        .question-card:focus-within {
+            border-color: var(--brown);
+        }
+
+        .question-card.answered {
+            opacity: 0.6;
+            border-color: var(--success);
+        }
+
+        .question-card.skipped {
+            opacity: 0.5;
+        }
+
+        .question-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--brown-light);
+            margin-bottom: 6px;
+        }
+
+        .question-text {
+            font-size: 0.9rem;
+            color: var(--beige-dim);
+            margin-bottom: 12px;
+        }
+
+        .question-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg);
+            border: 1px solid var(--surface2);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.875rem;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .question-input:focus {
+            border-color: var(--brown);
+        }
+
+        .question-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        .question-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            justify-content: flex-end;
+        }
+
+        .question-actions button {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: none;
+        }
+
+        .btn-skip {
+            background: transparent;
+            color: var(--text-dim);
+            border: 1px solid var(--surface2) !important;
+        }
+
+        .btn-skip:hover {
+            background: var(--surface2);
+            color: var(--beige-dim);
+        }
+
+        .btn-answer {
+            background: var(--brown);
+            color: var(--beige);
+        }
+
+        .btn-answer:hover {
+            background: var(--brown-light);
+        }
+
+        .btn-answer:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Assumption Badges */
+        .response-assumptions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 12px 16px;
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 10px;
+        }
+
+        .response-assumptions-label {
+            width: 100%;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+        }
+
+        .assumption-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            background: var(--surface2);
+            border: 1px solid transparent;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            user-select: none;
+        }
+
+        .assumption-badge:hover {
+            background: var(--brown-glow);
+        }
+
+        .assumption-badge[data-status="pending"] {
+            background: var(--surface2);
+            color: var(--beige-dim);
+        }
+
+        .assumption-badge[data-status="pending"]::before {
+            content: "?";
+            font-weight: 600;
+            color: var(--text-dim);
+        }
+
+        .assumption-badge[data-status="confirmed"] {
+            background: var(--success-dim);
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        .assumption-badge[data-status="confirmed"]::before {
+            content: "✓";
+            font-weight: 600;
+        }
+
+        .assumption-badge[data-status="rejected"] {
+            background: var(--error-dim);
+            border-color: var(--error);
+            color: var(--error);
+            text-decoration: line-through;
+        }
+
+        .assumption-badge[data-status="rejected"]::before {
+            content: "✗";
+            font-weight: 600;
+        }
+
+        .assumption-confidence {
+            font-size: 0.65rem;
+            opacity: 0.7;
+            margin-left: 2px;
+        }
+
+        /* Quick Action Buttons */
+        .response-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .action-btn {
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid var(--surface2);
+            background: var(--surface);
+            color: var(--beige-dim);
+        }
+
+        .action-btn:hover {
+            background: var(--surface2);
+            border-color: var(--brown);
+            color: var(--beige);
+        }
+
+        .action-btn.primary {
+            background: var(--brown);
+            border-color: var(--brown);
+            color: var(--beige);
+        }
+
+        .action-btn.primary:hover {
+            background: var(--brown-light);
+            border-color: var(--brown-light);
         }
 
         /* Input Area */
@@ -1037,11 +1278,17 @@
                     } else {
                         try {
                             const data = JSON.parse(msg.content);
-                            let html = `<div class="message-content">${data.message}</div>`;
-                            if (data.assumptions_made && data.assumptions_made.length > 0) {
-                                html += `<div class="assumptions"><strong>Assumptions:</strong> ${data.assumptions_made.join(' · ')}</div>`;
+                            // Handle structured vs simple response
+                            if (data.response_type === 'structured') {
+                                addStructuredResponse(data);
+                            } else {
+                                // Backward compatible: render as simple message
+                                let html = `<div class="message-content">${data.message}</div>`;
+                                if (data.assumptions_made && data.assumptions_made.length > 0) {
+                                    html += `<div class="assumptions"><strong>Assumptions:</strong> ${data.assumptions_made.join(' · ')}</div>`;
+                                }
+                                addMessageHTML(html, 'assistant');
                             }
-                            addMessageHTML(html, 'assistant');
                         } catch {
                             addMessage(msg.content, 'assistant');
                         }
@@ -1337,11 +1584,17 @@
                 const data = await response.json();
                 typingEl.remove();
 
-                let html = `<div class="message-content">${data.message}</div>`;
-                if (data.assumptions_made && data.assumptions_made.length > 0) {
-                    html += `<div class="assumptions"><strong>Assumptions:</strong> ${data.assumptions_made.join(' · ')}</div>`;
+                // Handle structured vs simple response
+                if (data.response_type === 'structured') {
+                    addStructuredResponse(data);
+                } else {
+                    // Backward compatible: render as simple message
+                    let html = `<div class="message-content">${data.message}</div>`;
+                    if (data.assumptions_made && data.assumptions_made.length > 0) {
+                        html += `<div class="assumptions"><strong>Assumptions:</strong> ${data.assumptions_made.join(' · ')}</div>`;
+                    }
+                    addMessageHTML(html, 'assistant');
                 }
-                addMessageHTML(html, 'assistant');
 
                 if (data.product_understanding && Object.keys(data.product_understanding).length > 0) {
                     productUnderstanding = data.product_understanding;
@@ -1930,6 +2183,230 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ============ Structured Response Functions ============
+
+        function addStructuredResponse(data) {
+            const el = document.createElement('div');
+            el.className = 'message assistant';
+
+            let html = `
+                <div class="avatar">m</div>
+                <div class="message-body">
+                    <div class="response-structured">
+            `;
+
+            // Message section
+            if (data.message) {
+                html += `<div class="response-message">${data.message}</div>`;
+            }
+
+            // Questions section
+            if (data.questions && data.questions.length > 0) {
+                html += '<div class="response-questions">';
+                data.questions.forEach(q => {
+                    const placeholder = q.placeholder ? `placeholder="${escapeHtml(q.placeholder)}"` : '';
+                    html += `
+                        <div class="question-card" data-question-id="${q.id}">
+                            <div class="question-label">${escapeHtml(q.label || 'Question')}</div>
+                            <div class="question-text">${escapeHtml(q.question)}</div>
+                            <input type="text" class="question-input" ${placeholder}>
+                            <div class="question-actions">
+                                <button class="btn-skip" onclick="skipQuestion(this)">Skip</button>
+                                <button class="btn-answer" onclick="answerQuestion(this)">Answer</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            // Assumptions section
+            if (data.assumptions && data.assumptions.length > 0) {
+                html += `
+                    <div class="response-assumptions">
+                        <div class="response-assumptions-label">Assumptions (click to confirm/reject)</div>
+                `;
+                data.assumptions.forEach(a => {
+                    const confidence = a.confidence ? `<span class="assumption-confidence">(${a.confidence})</span>` : '';
+                    html += `
+                        <span class="assumption-badge"
+                              data-assumption-id="${a.id}"
+                              data-status="${a.status || 'pending'}"
+                              onclick="cycleAssumption(this)">
+                            <span class="assumption-text">${escapeHtml(a.text)}</span>
+                            ${confidence}
+                        </span>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            // Quick actions section
+            if (data.quick_actions && data.quick_actions.length > 0) {
+                html += '<div class="response-actions">';
+                data.quick_actions.forEach(action => {
+                    const primaryClass = action.primary ? ' primary' : '';
+                    html += `
+                        <button class="action-btn${primaryClass}"
+                                onclick="handleQuickAction('${action.action}', '${action.id}')">
+                            ${escapeHtml(action.label)}
+                        </button>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            html += `
+                    </div>
+                </div>
+            `;
+
+            el.innerHTML = html;
+            messagesEl.appendChild(el);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function answerQuestion(btn) {
+            const card = btn.closest('.question-card');
+            const questionId = card.dataset.questionId;
+            const input = card.querySelector('.question-input');
+            const answer = input.value.trim();
+
+            if (!answer) {
+                input.focus();
+                return;
+            }
+
+            // Mark as answered
+            card.classList.add('answered');
+            input.disabled = true;
+            btn.disabled = true;
+            btn.textContent = 'Answered';
+
+            // Get the question label for context
+            const label = card.querySelector('.question-label').textContent;
+
+            // Send as a message
+            const message = `${label}: ${answer}`;
+            sendMessageDirect(message);
+        }
+
+        function skipQuestion(btn) {
+            const card = btn.closest('.question-card');
+            card.classList.add('skipped');
+
+            const input = card.querySelector('.question-input');
+            const answerBtn = card.querySelector('.btn-answer');
+            input.disabled = true;
+            answerBtn.disabled = true;
+            btn.textContent = 'Skipped';
+            btn.disabled = true;
+        }
+
+        function cycleAssumption(badge) {
+            const statuses = ['pending', 'confirmed', 'rejected'];
+            const current = badge.dataset.status || 'pending';
+            const currentIndex = statuses.indexOf(current);
+            const nextIndex = (currentIndex + 1) % statuses.length;
+            badge.dataset.status = statuses[nextIndex];
+        }
+
+        function handleQuickAction(action, id) {
+            switch (action) {
+                case 'trigger_generation':
+                    if (isReady) {
+                        generateScript();
+                    } else {
+                        sendMessageDirect("I'd like to generate the video script now.");
+                    }
+                    break;
+                case 'continue_conversation':
+                    inputEl.focus();
+                    break;
+                case 'add_details':
+                    inputEl.focus();
+                    inputEl.placeholder = 'Add more details about your product...';
+                    break;
+                case 'edit_assumptions':
+                    // Scroll to assumptions section
+                    const assumptions = document.querySelector('.response-assumptions');
+                    if (assumptions) {
+                        assumptions.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                    break;
+                case 'start_over':
+                    if (confirm('Start a new session? This will clear the current conversation.')) {
+                        createNewSession();
+                    }
+                    break;
+                default:
+                    // For any other action, send it as a message
+                    sendMessageDirect(action);
+            }
+        }
+
+        // Helper function to send a message without UI input
+        async function sendMessageDirect(message) {
+            if (!message) return;
+
+            addMessage(message, 'user');
+            sendBtn.disabled = true;
+
+            // Show typing indicator
+            const typingEl = document.createElement('div');
+            typingEl.className = 'message assistant';
+            typingEl.innerHTML = `
+                <div class="avatar">m</div>
+                <div class="message-body">
+                    <div class="typing-indicator"><span></span><span></span><span></span></div>
+                </div>
+            `;
+            messagesEl.appendChild(typingEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+
+                const data = await response.json();
+                typingEl.remove();
+
+                // Handle structured vs simple response
+                if (data.response_type === 'structured') {
+                    addStructuredResponse(data);
+                } else {
+                    let html = `<div class="message-content">${data.message}</div>`;
+                    if (data.assumptions_made && data.assumptions_made.length > 0) {
+                        html += `<div class="assumptions"><strong>Assumptions:</strong> ${data.assumptions_made.join(' · ')}</div>`;
+                    }
+                    addMessageHTML(html, 'assistant');
+                }
+
+                if (data.product_understanding && Object.keys(data.product_understanding).length > 0) {
+                    productUnderstanding = data.product_understanding;
+                    updateCanvas(data.product_understanding, data.confidence);
+
+                    if (productUnderstanding.name) {
+                        document.getElementById('currentSessionName').textContent = productUnderstanding.name;
+                    }
+                }
+
+                isReady = data.ready_for_video;
+                generateBtn.disabled = !isReady;
+                updateConfidencePill(data.confidence, isReady);
+
+            } catch (err) {
+                typingEl.remove();
+                addMessage('Something went wrong. Please try again.', 'assistant');
+            }
+
+            sendBtn.disabled = false;
+            inputEl.focus();
         }
 
         // ============ Scripts Menu Functions ============

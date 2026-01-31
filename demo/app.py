@@ -454,9 +454,34 @@ IMPORTANT APPROACH:
 2. Present your assumptions clearly, then ask targeted follow-up questions
 3. Be conversational and natural - like a smart co-founder brainstorming
 
-For each response, you MUST output valid JSON with this structure:
+For each response, you MUST output valid JSON with this STRUCTURED format:
 {
-  "message": "Your conversational response to the user",
+  "response_type": "structured",
+  "message": "Your brief conversational response (1-2 sentences max)",
+  "questions": [
+    {
+      "id": "q1",
+      "label": "Short Label",
+      "question": "Your specific question?",
+      "placeholder": "Example answer hint..."
+    }
+  ],
+  "assumptions": [
+    {
+      "id": "a1",
+      "text": "Assumption text",
+      "confidence": "high|medium|low",
+      "status": "pending"
+    }
+  ],
+  "quick_actions": [
+    {
+      "id": "action_id",
+      "label": "Button Label",
+      "action": "action_type",
+      "primary": false
+    }
+  ],
   "product_understanding": {
     "name": "Product name (your guess if not provided)",
     "tagline": "One-line description",
@@ -468,9 +493,19 @@ For each response, you MUST output valid JSON with this structure:
     "visual_style": "Minimal/Bold/Corporate/Startup/etc"
   },
   "confidence": 0.0 to 1.0,
-  "ready_for_video": true/false,
-  "assumptions_made": ["assumption1", "assumption2"]
+  "ready_for_video": true/false
 }
+
+RESPONSE FORMAT RULES:
+- "response_type": Always "structured" for main responses, use "simple" only for very brief confirmations
+- "message": Keep SHORT (1-2 sentences). Don't repeat questions in the message.
+- "questions": 1-2 questions max per turn. Each needs id, label, question, placeholder.
+- "assumptions": Convert your guesses into structured assumptions with confidence level.
+- "quick_actions": Add contextual buttons. Common actions:
+  - {"id": "generate", "label": "Generate script", "action": "trigger_generation", "primary": true} - when ready
+  - {"id": "add_details", "label": "Add more details", "action": "add_details", "primary": false}
+  - {"id": "continue", "label": "Continue", "action": "continue_conversation", "primary": false}
+- When confidence > 0.8 and ready_for_video=true, include the "Generate script" action as primary.
 
 IMPORTANT CONSTRAINTS:
 1. Videos are 3 segments of 5 seconds each (15s total) - focus on ONE killer moment per segment.
@@ -483,7 +518,7 @@ IMPORTANT CONSTRAINTS:
 
 Start with LOW confidence and build up as you learn more. Mark ready_for_video=true only when confidence > 0.8 and you have enough detail for a compelling 10-second demo.
 
-Be concise. Ask 1-2 questions max per turn. Make bold guesses - it's easier for users to correct than to describe from scratch."""
+Be concise. Make bold guesses - it's easier for users to correct than to describe from scratch."""
 
 
 def chat_with_llm(conversation_history, provider_name=None, model=None):
