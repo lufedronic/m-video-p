@@ -63,7 +63,7 @@ class GeminiImageProvider(ImageProvider):
                 config=types.GenerateImagesConfig(
                     number_of_images=1,
                     aspect_ratio="16:9",
-                    safety_filter_level="BLOCK_MEDIUM_AND_ABOVE",
+                    safety_filter_level="block_low_and_above",
                 )
             )
 
