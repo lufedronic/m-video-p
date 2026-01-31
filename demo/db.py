@@ -64,6 +64,19 @@ def init_db():
             );
 
             CREATE INDEX IF NOT EXISTS idx_consistency_session ON consistency_states(session_id);
+
+            CREATE TABLE IF NOT EXISTS persisted_images (
+                id TEXT PRIMARY KEY,
+                video_id TEXT,
+                frame_number INTEGER,
+                file_path TEXT NOT NULL,
+                original_url TEXT,
+                mime_type TEXT DEFAULT 'image/png',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_persisted_images_video ON persisted_images(video_id);
         """)
 
 
@@ -407,6 +420,87 @@ def get_consistency_state_version(session_id):
         ).fetchone()
 
         return row["version"] if row else None
+
+
+# ============ Persisted Image Functions ============
+
+def create_persisted_image(file_path, video_id=None, frame_number=None, original_url=None, mime_type="image/png"):
+    """
+    Create a new persisted image record.
+
+    Args:
+        file_path: Path to the image file on disk
+        video_id: Optional associated video ID
+        frame_number: Optional frame number (1-4)
+        original_url: Optional original URL the image was downloaded from
+        mime_type: MIME type of the image
+
+    Returns:
+        The image ID
+    """
+    image_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO persisted_images (id, video_id, frame_number, file_path, original_url, mime_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (image_id, video_id, frame_number, file_path, original_url, mime_type, now))
+
+    return image_id
+
+
+def get_persisted_image(image_id):
+    """
+    Get a persisted image by ID.
+
+    Args:
+        image_id: The image ID
+
+    Returns:
+        Dict with image data or None if not found
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM persisted_images WHERE id = ?", (image_id,)
+        ).fetchone()
+
+        if not row:
+            return None
+
+        return dict(row)
+
+
+def get_video_persisted_images(video_id):
+    """
+    Get all persisted images for a video.
+
+    Args:
+        video_id: The video ID
+
+    Returns:
+        List of image dicts ordered by frame_number
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM persisted_images WHERE video_id = ? ORDER BY frame_number",
+            (video_id,)
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def delete_persisted_image(image_id):
+    """
+    Delete a persisted image record.
+
+    Note: This only removes the database record, not the file on disk.
+
+    Args:
+        image_id: The image ID
+    """
+    with get_connection() as conn:
+        conn.execute("DELETE FROM persisted_images WHERE id = ?", (image_id,))
 
 
 # Initialize DB on import

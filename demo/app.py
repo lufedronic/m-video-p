@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import uuid
 import time
+import base64
+from datetime import datetime
 from flask import Flask, request, jsonify, render_template, session, send_file, Response
 from dotenv import load_dotenv
 
@@ -47,6 +49,10 @@ app.secret_key = os.urandom(24)
 _image_cache: dict[str, tuple[bytes, str, float]] = {}  # cache_id -> (bytes, mime_type, timestamp)
 IMAGE_CACHE_TTL = 3600  # 1 hour
 
+# ============ Persisted Images Directory ============
+IMAGES_DIR = os.path.join(os.path.dirname(__file__), "data", "images")
+os.makedirs(IMAGES_DIR, exist_ok=True)
+
 
 def cache_image(image_bytes: bytes, mime_type: str = "image/png") -> str:
     """Cache image bytes and return a URL path to serve them."""
@@ -73,6 +79,350 @@ def serve_cached_image(cache_id):
 
     image_bytes, mime_type, _ = _image_cache[cache_id]
     return Response(image_bytes, mimetype=mime_type)
+
+
+# ============ Persisted Image Functions ============
+
+def persist_image(image_data, video_id=None, frame_num=None, original_url=None):
+    """
+    Persist an image to disk and database.
+
+    Args:
+        image_data: Either a URL string, base64 string, or raw bytes
+        video_id: Optional associated video ID
+        frame_num: Optional frame number (1-4)
+        original_url: Optional original URL (if image_data is bytes/base64)
+
+    Returns:
+        Tuple of (image_id, url_path)
+    """
+    image_bytes = None
+    mime_type = "image/png"
+
+    if isinstance(image_data, bytes):
+        image_bytes = image_data
+    elif isinstance(image_data, str):
+        if image_data.startswith("data:"):
+            # Data URL: data:image/png;base64,xxx
+            header, b64_data = image_data.split(",", 1)
+            if "image/jpeg" in header or "image/jpg" in header:
+                mime_type = "image/jpeg"
+            elif "image/webp" in header:
+                mime_type = "image/webp"
+            image_bytes = base64.b64decode(b64_data)
+        elif image_data.startswith("/api/images/"):
+            # Local cached image - get from cache
+            cache_id = image_data.split("/")[-1]
+            if cache_id in _image_cache:
+                image_bytes, mime_type, _ = _image_cache[cache_id]
+            else:
+                raise ValueError(f"Cached image not found: {cache_id}")
+        elif image_data.startswith("http://") or image_data.startswith("https://"):
+            # Remote URL - download
+            original_url = original_url or image_data
+            resp = requests.get(image_data, timeout=60)
+            resp.raise_for_status()
+            image_bytes = resp.content
+            content_type = resp.headers.get("content-type", "image/png")
+            if "jpeg" in content_type or "jpg" in content_type:
+                mime_type = "image/jpeg"
+            elif "webp" in content_type:
+                mime_type = "image/webp"
+            elif "png" in content_type:
+                mime_type = "image/png"
+        else:
+            # Assume raw base64
+            image_bytes = base64.b64decode(image_data)
+
+    if not image_bytes:
+        raise ValueError("Could not extract image bytes from provided data")
+
+    # Determine file extension
+    ext = ".png"
+    if mime_type == "image/jpeg":
+        ext = ".jpg"
+    elif mime_type == "image/webp":
+        ext = ".webp"
+
+    # Save to disk
+    image_id = uuid.uuid4().hex
+    filename = f"{image_id}{ext}"
+    file_path = os.path.join(IMAGES_DIR, filename)
+
+    with open(file_path, "wb") as f:
+        f.write(image_bytes)
+
+    # Save to database
+    db.create_persisted_image(
+        file_path=file_path,
+        video_id=video_id,
+        frame_number=frame_num,
+        original_url=original_url,
+        mime_type=mime_type
+    )
+
+    return image_id, f"/api/images/persisted/{image_id}"
+
+
+@app.route("/api/images/persisted/<image_id>")
+def serve_persisted_image(image_id):
+    """Serve a persisted image by its ID."""
+    # Look up in database
+    image_record = db.get_persisted_image(image_id)
+    if not image_record:
+        # Also check if it's a raw filename (legacy support)
+        for ext in [".png", ".jpg", ".webp"]:
+            file_path = os.path.join(IMAGES_DIR, f"{image_id}{ext}")
+            if os.path.exists(file_path):
+                mime_type = "image/png" if ext == ".png" else "image/jpeg" if ext == ".jpg" else "image/webp"
+                return send_file(file_path, mimetype=mime_type)
+        return jsonify({"error": "Image not found"}), 404
+
+    file_path = image_record["file_path"]
+    if not os.path.exists(file_path):
+        return jsonify({"error": "Image file missing"}), 404
+
+    return send_file(file_path, mimetype=image_record.get("mime_type", "image/png"))
+
+
+@app.route("/api/images/persist/<cache_id>", methods=["POST"])
+def persist_cached_image(cache_id):
+    """Persist a cached (in-memory) image to disk."""
+    if cache_id not in _image_cache:
+        return jsonify({"error": "Cached image not found or expired"}), 404
+
+    data = request.json or {}
+    video_id = data.get("video_id")
+    frame_num = data.get("frame_number")
+
+    try:
+        image_bytes, mime_type, _ = _image_cache[cache_id]
+        image_id, url = persist_image(
+            image_bytes,
+            video_id=video_id,
+            frame_num=frame_num,
+            original_url=f"/api/images/{cache_id}"
+        )
+        return jsonify({"image_id": image_id, "url": url})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/images/upload", methods=["POST"])
+def upload_image():
+    """Upload a custom image via multipart form."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    video_id = request.form.get("video_id")
+    frame_num = request.form.get("frame_number")
+    if frame_num:
+        frame_num = int(frame_num)
+
+    # Determine mime type from filename
+    filename = file.filename.lower()
+    if filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        mime_type = "image/jpeg"
+        ext = ".jpg"
+    elif filename.endswith(".webp"):
+        mime_type = "image/webp"
+        ext = ".webp"
+    else:
+        mime_type = "image/png"
+        ext = ".png"
+
+    try:
+        image_bytes = file.read()
+        image_id, url = persist_image(
+            image_bytes,
+            video_id=video_id,
+            frame_num=frame_num
+        )
+        return jsonify({"image_id": image_id, "url": url})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ============ Export/Import Endpoints ============
+
+def _fetch_image_as_base64(url):
+    """Fetch an image URL and return base64 data with mime type."""
+    if url.startswith("/api/images/"):
+        # Local image - could be cached or persisted
+        parts = url.split("/")
+        image_id = parts[-1]
+
+        # Check persisted first
+        if "persisted" in url:
+            image_record = db.get_persisted_image(image_id)
+            if image_record and os.path.exists(image_record["file_path"]):
+                with open(image_record["file_path"], "rb") as f:
+                    image_bytes = f.read()
+                mime_type = image_record.get("mime_type", "image/png")
+                return base64.b64encode(image_bytes).decode(), mime_type
+
+        # Check cache
+        if image_id in _image_cache:
+            image_bytes, mime_type, _ = _image_cache[image_id]
+            return base64.b64encode(image_bytes).decode(), mime_type
+
+        # Try persisted by ID
+        for ext in [".png", ".jpg", ".webp"]:
+            file_path = os.path.join(IMAGES_DIR, f"{image_id}{ext}")
+            if os.path.exists(file_path):
+                with open(file_path, "rb") as f:
+                    image_bytes = f.read()
+                mime_type = "image/png" if ext == ".png" else "image/jpeg" if ext == ".jpg" else "image/webp"
+                return base64.b64encode(image_bytes).decode(), mime_type
+
+        return None, None
+
+    elif url.startswith("http://") or url.startswith("https://"):
+        # Remote URL
+        try:
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "image/png")
+            if "jpeg" in content_type or "jpg" in content_type:
+                mime_type = "image/jpeg"
+            elif "webp" in content_type:
+                mime_type = "image/webp"
+            else:
+                mime_type = "image/png"
+            return base64.b64encode(resp.content).decode(), mime_type
+        except Exception as e:
+            print(f"Failed to fetch image from {url}: {e}")
+            return None, None
+
+    return None, None
+
+
+@app.route("/api/export/script/<video_id>")
+def export_script(video_id):
+    """Export just the script as JSON (for quick copy/paste)."""
+    video = db.get_video(video_id)
+    if not video:
+        return jsonify({"error": "Video not found"}), 404
+
+    if not video.get("script"):
+        return jsonify({"error": "No script found for this video"}), 404
+
+    return jsonify({
+        "script": video["script"],
+        "video_id": video_id
+    })
+
+
+@app.route("/api/export/bundle/<video_id>")
+def export_bundle(video_id):
+    """Export full bundle with script and base64-encoded images."""
+    video = db.get_video(video_id)
+    if not video:
+        return jsonify({"error": "Video not found"}), 404
+
+    if not video.get("script"):
+        return jsonify({"error": "No script found for this video"}), 404
+
+    script = video["script"]
+    keyframe_urls = video.get("keyframe_urls", {})
+
+    # Get session info for name
+    sess = db.get_session(video.get("session_id")) if video.get("session_id") else None
+    name = sess.get("name") if sess else script.get("title", "Untitled")
+
+    # Fetch and encode images
+    images = {}
+    for frame_num, url in keyframe_urls.items():
+        if url:
+            b64_data, mime_type = _fetch_image_as_base64(url)
+            if b64_data:
+                images[str(frame_num)] = {
+                    "data": b64_data,
+                    "mime_type": mime_type
+                }
+
+    bundle = {
+        "version": "1.0",
+        "type": "script-with-images",
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "name": name,
+        "script": script,
+        "images": images
+    }
+
+    return jsonify(bundle)
+
+
+@app.route("/api/import/bundle", methods=["POST"])
+def import_bundle():
+    """
+    Import a bundle (script + optional images).
+
+    Creates a new session and video record, persists images locally.
+    """
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    # Validate bundle format
+    if data.get("type") not in ["script-with-images", "script-only", None]:
+        return jsonify({"error": "Invalid bundle type"}), 400
+
+    script = data.get("script")
+    if not script:
+        return jsonify({"error": "No script in bundle"}), 400
+
+    images_data = data.get("images", {})
+    name = data.get("name") or script.get("title", "Imported Script")
+
+    # Create new session
+    session_id = db.create_session(name=name)
+
+    # Create video record
+    video_id = db.create_video(session_id, script=script)
+
+    # Persist images
+    keyframe_urls = {}
+    for frame_num, img_info in images_data.items():
+        try:
+            if isinstance(img_info, dict):
+                # New format: {"data": "base64...", "mime_type": "image/png"}
+                b64_data = img_info.get("data", "")
+                mime_type = img_info.get("mime_type", "image/png")
+                # Reconstruct data URL
+                image_data = f"data:{mime_type};base64,{b64_data}"
+            else:
+                # Legacy: raw base64 or URL
+                image_data = img_info
+
+            image_id, url = persist_image(
+                image_data,
+                video_id=video_id,
+                frame_num=int(frame_num)
+            )
+            keyframe_urls[str(frame_num)] = url
+        except Exception as e:
+            print(f"Failed to persist image for frame {frame_num}: {e}")
+
+    # Update video with keyframe URLs
+    if keyframe_urls:
+        db.update_video(video_id, keyframe_urls=keyframe_urls)
+
+    # Update Flask session
+    session["session_id"] = session_id
+    session["conversation"] = []
+    session.modified = True
+
+    return jsonify({
+        "video_id": video_id,
+        "session_id": session_id,
+        "keyframe_urls": keyframe_urls,
+        "message": f"Imported bundle with {len(keyframe_urls)} images"
+    })
 
 
 # ============ Task Registry for polling ============
@@ -986,12 +1336,22 @@ def generate_videos_from_keyframes():
     data = request.json
     keyframe_urls = data.get("keyframe_urls", {})  # {1: url, 2: url, 3: url, 4: url}
     segments = data.get("segments", [])
+    video_id = data.get("video_id")
 
     # Get provider from session or request
     provider_name = data.get("provider") or session.get("video_provider") or os.getenv("VIDEO_PROVIDER", "wan")
 
     print(f"=== Video Generation (provider: {provider_name}) ===")
     print(f"Keyframe URLs: {list(keyframe_urls.keys())}")
+
+    # Save keyframe URLs to video record
+    if video_id and keyframe_urls:
+        db.update_video(video_id, keyframe_urls=keyframe_urls)
+    elif session.get("session_id") and keyframe_urls:
+        # Try to get video from session
+        video = db.get_session_video(session["session_id"])
+        if video:
+            db.update_video(video["id"], keyframe_urls=keyframe_urls)
 
     try:
         video_provider = get_video_provider(provider_name)
@@ -1063,6 +1423,159 @@ def generate_videos_from_keyframes():
             "status": "generating_videos",
             "phase": "videos",
             "segments": video_tasks,
+            "provider": provider_name,
+            "message": f"Generating {len(video_tasks)} video segments with {provider_name}"
+        })
+
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/generate-videos-direct", methods=["POST"])
+def generate_videos_direct():
+    """
+    Generate videos directly from provided script and images.
+
+    Skips keyframe generation phase - goes straight to video generation.
+    Useful for imported bundles or when you already have keyframe images.
+
+    Request body:
+        - script: The video script with segments
+        - images: Dict mapping frame numbers to URL or base64 images
+                  e.g., {"1": "http://...", "2": "data:image/png;base64,..."}
+        - provider: Optional video provider name
+        - video_id: Optional existing video ID to update
+        - persist_images: Optional bool to persist images before generation (default true)
+
+    Returns:
+        - video_tasks: Array of video generation tasks for polling
+    """
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    script = data.get("script")
+    images = data.get("images", {})
+    provider_name = data.get("provider") or session.get("video_provider") or os.getenv("VIDEO_PROVIDER", "wan")
+    video_id = data.get("video_id")
+    persist = data.get("persist_images", True)
+
+    if not script:
+        return jsonify({"error": "No script provided"}), 400
+
+    segments = script.get("segments", [])
+    if not segments:
+        return jsonify({"error": "No segments in script"}), 400
+
+    print(f"=== Direct Video Generation (provider: {provider_name}) ===")
+    print(f"Images provided: {list(images.keys())}")
+    print(f"Segments: {len(segments)}")
+
+    # Process images - convert to usable URLs
+    keyframe_urls = {}
+    for frame_num, img_data in images.items():
+        frame_num = str(frame_num)
+        if not img_data:
+            continue
+
+        if persist and not img_data.startswith("/api/images/persisted/"):
+            # Persist the image first
+            try:
+                image_id, url = persist_image(
+                    img_data,
+                    video_id=video_id,
+                    frame_num=int(frame_num)
+                )
+                keyframe_urls[frame_num] = url
+            except Exception as e:
+                print(f"Failed to persist image for frame {frame_num}: {e}")
+                # Fall back to using the original data if it's a URL
+                if img_data.startswith("http") or img_data.startswith("/"):
+                    keyframe_urls[frame_num] = img_data
+        else:
+            keyframe_urls[frame_num] = img_data
+
+    # Update video record with keyframe URLs if we have a video_id
+    if video_id and keyframe_urls:
+        db.update_video(video_id, keyframe_urls=keyframe_urls)
+
+    # Now generate videos using the existing endpoint logic
+    try:
+        video_provider = get_video_provider(provider_name)
+        video_tasks = []
+
+        for seg in segments:
+            segment_num = seg.get("segment")
+            first_frame = seg.get("first_frame")
+            last_frame = seg.get("last_frame")
+            motion = seg.get("motion_description", "")
+
+            first_url = keyframe_urls.get(str(first_frame))
+            last_url = keyframe_urls.get(str(last_frame))
+
+            if not first_url or not last_url:
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "error",
+                    "error": f"Missing keyframe URLs for frames {first_frame} or {last_frame}",
+                    "provider": provider_name
+                })
+                continue
+
+            print(f"  Segment {segment_num}: frames {first_frame}->{last_frame}")
+
+            # Create ImageData from URLs
+            first_image = ImageData(url=first_url)
+            last_image = ImageData(url=last_url)
+
+            task = video_provider.generate_video(
+                prompt=motion,
+                first_frame=first_image,
+                last_frame=last_image
+            )
+
+            if task.status == "processing":
+                register_task(task)
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "processing",
+                    "task_id": task.task_id,
+                    "provider": provider_name
+                })
+            elif task.status == "completed":
+                url = task.result_url
+                if task.result_bytes and not url:
+                    filename = f"seg_{segment_num}_{task.task_id[:8]}.mp4"
+                    filepath = os.path.join("static", filename)
+                    os.makedirs("static", exist_ok=True)
+                    with open(filepath, "wb") as f:
+                        f.write(task.result_bytes)
+                    url = f"/static/{filename}"
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "completed",
+                    "url": url,
+                    "provider": provider_name
+                })
+            else:
+                video_tasks.append({
+                    "segment": segment_num,
+                    "status": "error",
+                    "error": task.error or "Failed to start video generation",
+                    "provider": provider_name
+                })
+
+        return jsonify({
+            "status": "generating_videos",
+            "phase": "videos",
+            "segments": video_tasks,
+            "keyframe_urls": keyframe_urls,
+            "video_id": video_id,
             "provider": provider_name,
             "message": f"Generating {len(video_tasks)} video segments with {provider_name}"
         })

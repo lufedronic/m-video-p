@@ -741,6 +741,104 @@
             color: var(--beige-dim);
         }
 
+        /* Scripts Menu */
+        .scripts-dropdown {
+            position: relative;
+        }
+
+        .scripts-trigger {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-size: 0.875rem;
+            color: var(--beige);
+        }
+
+        .scripts-trigger:hover {
+            border-color: var(--brown);
+        }
+
+        .scripts-trigger .arrow {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            transition: transform 0.2s;
+        }
+
+        .scripts-dropdown.open .scripts-trigger .arrow {
+            transform: rotate(180deg);
+        }
+
+        .scripts-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            min-width: 200px;
+            background: var(--surface);
+            border: 1px solid var(--surface2);
+            border-radius: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            z-index: 50;
+            overflow: hidden;
+        }
+
+        .scripts-dropdown.open .scripts-menu {
+            display: block;
+        }
+
+        .scripts-menu-item {
+            display: block;
+            width: 100%;
+            padding: 12px 14px;
+            background: transparent;
+            border: none;
+            text-align: left;
+            color: var(--beige);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+
+        .scripts-menu-item:hover {
+            background: var(--surface2);
+        }
+
+        .scripts-menu-item:disabled {
+            color: var(--text-dim);
+            cursor: not-allowed;
+        }
+
+        .scripts-menu-divider {
+            height: 1px;
+            background: var(--surface2);
+            margin: 4px 0;
+        }
+
+        .scripts-menu-label {
+            padding: 8px 14px 4px;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+        }
+
+        .imported-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: var(--brown-glow);
+            border: 1px solid var(--brown);
+            border-radius: 4px;
+            font-size: 0.65rem;
+            color: var(--brown-light);
+            margin-left: 8px;
+        }
+
         /* Responsive */
         @media (max-width: 900px) {
             .side-panel {
@@ -770,6 +868,21 @@
                         <div class="session-list" id="sessionList">
                             <!-- Sessions populated by JS -->
                         </div>
+                    </div>
+                </div>
+                <div class="scripts-dropdown" id="scriptsDropdown">
+                    <div class="scripts-trigger" onclick="toggleScriptsMenu()">
+                        <span>Scripts</span>
+                        <span class="arrow">&#9662;</span>
+                    </div>
+                    <div class="scripts-menu">
+                        <div class="scripts-menu-label">Export</div>
+                        <button class="scripts-menu-item" onclick="exportCurrentScript()" id="exportScriptBtn" disabled>Export Script (JSON)</button>
+                        <button class="scripts-menu-item" onclick="exportBundle()" id="exportBundleBtn" disabled>Export Bundle (with images)</button>
+                        <div class="scripts-menu-divider"></div>
+                        <div class="scripts-menu-label">Import</div>
+                        <button class="scripts-menu-item" onclick="triggerImportBundle()">Import Bundle...</button>
+                        <input type="file" id="bundleFileInput" accept=".json" style="display: none;" onchange="handleImportBundle(event)">
                     </div>
                 </div>
             </div>
@@ -960,6 +1073,9 @@
                     generateBtn.textContent = 'View Video Script';
                 }
             }
+
+            // Update scripts menu state
+            updateScriptsMenuState();
         }
 
         async function loadSessionList() {
@@ -1369,6 +1485,7 @@
 
                 showScript(script);
                 generateBtn.textContent = 'View Video Script';
+                updateScriptsMenuState();
 
             } catch (err) {
                 console.error('Fetch error:', err);
@@ -1386,8 +1503,10 @@
             isGenerating = false;
             currentVideoId = null;
             restoredStitchedUrl = null;
+            isImportedBundle = false;
             document.getElementById('videoProgressBtn').style.display = 'none';
             generateBtn.textContent = 'Generate Video Script';
+            updateScriptsMenuState();
         }
 
         async function regenerateScript() {
@@ -1479,6 +1598,11 @@
 
         async function generateVideo() {
             if (!currentScript?.keyframes?.length) return;
+
+            // If we have imported keyframes already, use direct video generation
+            if (isImportedBundle && Object.keys(keyframeUrls).length >= 4) {
+                return generateVideosFromImport();
+            }
 
             const btn = document.getElementById('generateVideoBtn');
             const container = document.getElementById('videoContainer');
@@ -1600,6 +1724,7 @@
                     btn.textContent = 'Phase 2: Generating videos...';
                     document.getElementById('videoProgressBtn').textContent = 'Generating videos...';
                     document.querySelectorAll('.seg-status').forEach(el => el.style.opacity = '1');
+                    updateScriptsMenuState();  // Enable export with images
                     await startVideoGeneration();
                     return;
                 }
@@ -1625,7 +1750,8 @@
                     body: JSON.stringify({
                         keyframe_urls: keyframeUrls,
                         segments: currentScript.segments,
-                        provider: currentProvider
+                        provider: currentProvider,
+                        video_id: currentVideoId
                     })
                 });
 
@@ -1804,6 +1930,270 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ============ Scripts Menu Functions ============
+
+        let isImportedBundle = false;
+
+        function toggleScriptsMenu() {
+            const dropdown = document.getElementById('scriptsDropdown');
+            dropdown.classList.toggle('open');
+            updateScriptsMenuState();
+        }
+
+        // Close scripts dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('scriptsDropdown');
+            if (dropdown && !dropdown.contains(e.target)) {
+                dropdown.classList.remove('open');
+            }
+        });
+
+        function updateScriptsMenuState() {
+            // Enable/disable export buttons based on whether we have a script
+            const hasScript = currentScript !== null && currentVideoId !== null;
+            document.getElementById('exportScriptBtn').disabled = !hasScript;
+            document.getElementById('exportBundleBtn').disabled = !hasScript || Object.keys(keyframeUrls).length === 0;
+        }
+
+        async function exportCurrentScript() {
+            if (!currentVideoId) {
+                alert('No script to export. Generate a script first.');
+                return;
+            }
+
+            document.getElementById('scriptsDropdown').classList.remove('open');
+
+            try {
+                const resp = await fetch(`/api/export/script/${currentVideoId}`);
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    alert('Export failed: ' + (err.error || 'Unknown error'));
+                    return;
+                }
+
+                const data = await resp.json();
+                const jsonStr = JSON.stringify(data.script, null, 2);
+
+                // Download as file
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `script_${currentVideoId.substring(0, 8)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+            } catch (err) {
+                console.error('Export error:', err);
+                alert('Export failed: ' + err.message);
+            }
+        }
+
+        async function exportBundle() {
+            if (!currentVideoId) {
+                alert('No script to export. Generate a script first.');
+                return;
+            }
+
+            document.getElementById('scriptsDropdown').classList.remove('open');
+
+            try {
+                const resp = await fetch(`/api/export/bundle/${currentVideoId}`);
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    alert('Export failed: ' + (err.error || 'Unknown error'));
+                    return;
+                }
+
+                const bundle = await resp.json();
+                const jsonStr = JSON.stringify(bundle, null, 2);
+
+                // Download as file
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const safeName = (bundle.name || 'bundle').replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+                a.download = `${safeName}_bundle.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+            } catch (err) {
+                console.error('Export error:', err);
+                alert('Export failed: ' + err.message);
+            }
+        }
+
+        function triggerImportBundle() {
+            document.getElementById('scriptsDropdown').classList.remove('open');
+            document.getElementById('bundleFileInput').click();
+        }
+
+        async function handleImportBundle(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Reset the input so the same file can be selected again
+            event.target.value = '';
+
+            try {
+                const text = await file.text();
+                const bundle = JSON.parse(text);
+
+                await loadBundle(bundle);
+
+            } catch (err) {
+                console.error('Import error:', err);
+                alert('Import failed: ' + err.message);
+            }
+        }
+
+        async function loadBundle(bundle) {
+            // Validate bundle
+            if (!bundle.script) {
+                throw new Error('Invalid bundle: no script found');
+            }
+
+            // Show loading state
+            const progressBtn = document.getElementById('videoProgressBtn');
+            progressBtn.style.display = 'inline-block';
+            progressBtn.textContent = 'Importing...';
+
+            try {
+                const resp = await fetch('/api/import/bundle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bundle)
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.error || 'Import failed');
+                }
+
+                const result = await resp.json();
+                console.log('Import result:', result);
+
+                // Update local state
+                currentSessionId = result.session_id;
+                currentVideoId = result.video_id;
+                currentScript = bundle.script;
+                currentScript.video_id = result.video_id;
+                keyframeUrls = result.keyframe_urls || {};
+                isImportedBundle = true;
+
+                // Update session name display
+                document.getElementById('currentSessionName').textContent = bundle.name || 'Imported Script';
+
+                // Add imported badge to header
+                const sessionName = document.getElementById('currentSessionName');
+                if (!sessionName.querySelector('.imported-badge')) {
+                    sessionName.innerHTML += '<span class="imported-badge">Imported</span>';
+                }
+
+                // Clear conversation (imported bundles start fresh)
+                messagesEl.innerHTML = '';
+                addMessageHTML(`<div class="message-content">Imported bundle "${bundle.name || 'Untitled'}" with ${Object.keys(keyframeUrls).length} keyframe images. Click "View Script" to see the script and generate videos.</div>`, 'assistant');
+
+                // Show the script modal
+                showScript(currentScript);
+
+                // Update button states
+                progressBtn.textContent = 'View script';
+                generateBtn.textContent = 'View Video Script';
+                generateBtn.disabled = false;
+                updateScriptsMenuState();
+
+                // Update canvas with product info from script if available
+                if (bundle.script.title) {
+                    updateCanvas({
+                        name: bundle.script.title,
+                        tagline: bundle.script.visual_style || '',
+                        visual_style: bundle.script.visual_style,
+                        tone: bundle.script.color_palette
+                    }, 1.0);
+                }
+
+            } catch (err) {
+                progressBtn.style.display = 'none';
+                throw err;
+            }
+        }
+
+        async function generateVideosFromImport() {
+            // This is called when user wants to generate videos directly from imported images
+            if (!currentScript || Object.keys(keyframeUrls).length < 4) {
+                alert('Need script and 4 keyframe images to generate videos');
+                return;
+            }
+
+            const btn = document.getElementById('generateVideoBtn');
+            const container = document.getElementById('videoContainer');
+            const progressBtn = document.getElementById('videoProgressBtn');
+
+            btn.disabled = true;
+            btn.textContent = 'Generating videos...';
+            isGenerating = true;
+            progressBtn.textContent = 'Generating videos...';
+
+            container.innerHTML = `
+                <div style="background: var(--surface2); border-radius: 10px; padding: 20px;">
+                    <div style="color: var(--beige-dim); text-align: center; margin-bottom: 12px;">Generating video segments from imported keyframes...</div>
+                    <div id="segmentStatus" style="display: flex; gap: 6px; justify-content: center; margin-top: 12px;">
+                        <div class="seg-status" data-seg="1" style="padding: 6px 12px; background: var(--surface); border-radius: 6px; font-size: 0.75rem;">Seg 1: Starting</div>
+                        <div class="seg-status" data-seg="2" style="padding: 6px 12px; background: var(--surface); border-radius: 6px; font-size: 0.75rem;">Seg 2: Starting</div>
+                        <div class="seg-status" data-seg="3" style="padding: 6px 12px; background: var(--surface); border-radius: 6px; font-size: 0.75rem;">Seg 3: Starting</div>
+                    </div>
+                </div>
+            `;
+
+            try {
+                const response = await fetch('/api/generate-videos-direct', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        script: currentScript,
+                        images: keyframeUrls,
+                        video_id: currentVideoId,
+                        provider: currentProvider,
+                        persist_images: false  // Already persisted during import
+                    })
+                });
+
+                const data = await response.json();
+                console.log('Direct video generation response:', data);
+
+                if (data.error) {
+                    container.innerHTML = `<div style="background: #3a1a1a; border: 1px solid #8b3a3a; border-radius: 10px; padding: 16px; color: #f5a0a0;">${data.error}</div>`;
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                    isGenerating = false;
+                    progressBtn.textContent = 'View script';
+                    return;
+                }
+
+                // Update keyframe URLs if they were persisted
+                if (data.keyframe_urls) {
+                    keyframeUrls = data.keyframe_urls;
+                }
+
+                currentSegments = data.segments;
+                pollVideoStatus();
+
+            } catch (err) {
+                console.error('Error:', err);
+                container.innerHTML = `<div style="background: #3a1a1a; border: 1px solid #8b3a3a; border-radius: 10px; padding: 16px; color: #f5a0a0;">Error: ${err.message}</div>`;
+                btn.disabled = false;
+                btn.textContent = 'Retry';
+                isGenerating = false;
+                progressBtn.textContent = 'View script';
+            }
         }
     </script>
 </body>
