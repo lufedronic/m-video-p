@@ -25,7 +25,7 @@ from providers.llm import (
     get_available_llm_providers,
     Message,
 )
-from consistency import ConsistencyManager, SubjectType, ConfidenceLevel
+from consistency import ConsistencyManager, SubjectType, ConfidenceLevel, PromptAssembler
 
 # Global consistency managers by session_id
 _consistency_managers: dict[str, ConsistencyManager] = {}
@@ -568,6 +568,104 @@ def get_consistency_state():
         "style": style,
         "prompt_preview": manager.get_prompt_block(detail_level="medium")
     })
+
+
+@app.route("/api/generate-reference", methods=["POST"])
+def generate_reference():
+    """
+    Generate a reference image for a subject.
+
+    Request body:
+        - subject_id: ID of the subject to generate reference for
+        - pose: Optional pose/orientation for the reference
+
+    Returns:
+        - url/reference_url: The generated image URL (if sync completion)
+        - task_id: Task ID for polling (if async)
+    """
+    # Check for session
+    session_id = session.get("session_id")
+    if not session_id:
+        return jsonify({"error": "No active session"}), 400
+
+    data = request.json or {}
+    subject_id = data.get("subject_id")
+    pose = data.get("pose")
+
+    if not subject_id:
+        return jsonify({"error": "subject_id is required"}), 400
+
+    # Get or create consistency manager for this session
+    manager = get_consistency_manager(session_id)
+
+    # Get the subject
+    subject = manager.get_subject(subject_id)
+    if not subject:
+        return jsonify({"error": f"Subject not found: {subject_id}"}), 404
+
+    try:
+        # Build the reference prompt using PromptAssembler
+        assembler = PromptAssembler(manager.state)
+        prompt = assembler.assemble_reference_prompt(
+            subject_id=subject_id,
+            pose=pose
+        )
+
+        print(f"[generate-reference] Generating reference for subject {subject_id}")
+        print(f"[generate-reference] Prompt: {prompt[:150]}...")
+
+        # Try Google/Imagen 3 provider first (better quality for stills), fall back to Wan
+        task = None
+        try:
+            image_provider = get_image_provider("google")
+            task = image_provider.generate_image(prompt)
+            if task.status == "error":
+                raise ValueError(task.error or "Google provider failed")
+        except Exception as google_err:
+            print(f"[generate-reference] Google provider failed: {google_err}, falling back to Wan")
+            image_provider = get_image_provider("wan")
+            task = image_provider.generate_image(prompt)
+
+        if task.status == "completed" and task.result:
+            # Sync completion - get URL (cache if needed for base64)
+            url = task.result.to_url(cache_func=cache_image)
+
+            # Store the reference URL on the subject
+            manager.set_reference_url(subject_id, url)
+
+            return jsonify({
+                "status": "completed",
+                "url": url,
+                "reference_url": url,
+                "subject_id": subject_id
+            })
+
+        elif task.status == "processing":
+            # Async - register task for polling
+            register_task(task)
+            # Store subject_id in task data for later reference URL update
+            task.provider_data["subject_id"] = subject_id
+            task.provider_data["session_id"] = session_id
+            return jsonify({
+                "status": "processing",
+                "task_id": task.task_id,
+                "subject_id": subject_id,
+                "message": "Reference image generation started"
+            })
+
+        else:
+            return jsonify({
+                "error": task.error or "Failed to start image generation",
+                "status": "error"
+            }), 500
+
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        print(f"[generate-reference] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/reset", methods=["POST"])

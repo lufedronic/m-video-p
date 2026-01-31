@@ -482,3 +482,25 @@ class ConsistencyManager:
             )
 
         return subject
+
+    # ============ Reference Image Management ============
+
+    def set_reference_url(self, subject_id: str, url: str) -> bool:
+        """
+        Set the reference image URL for a subject.
+
+        Args:
+            subject_id: ID of the subject to update
+            url: URL of the generated reference image
+
+        Returns:
+            True if updated successfully, False if subject not found
+        """
+        subject = self.get_subject(subject_id)
+        if not subject:
+            return False
+
+        subject.reference_image_url = url
+        subject.updated_at = datetime.utcnow()
+        self._dirty = True
+        return True

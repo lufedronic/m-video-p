@@ -29,8 +29,9 @@ class GeminiImageProvider(ImageProvider):
     """
 
     def __init__(self):
-        # Use Imagen 3 for image generation (not the multimodal Gemini model)
-        self.model = "imagen-3.0-generate-002"
+        # Use Imagen 4 for image generation (Imagen 3 was shut down Jan 2026)
+        # Options: imagen-4.0-generate-001, imagen-4.0-ultra-generate-001, imagen-4.0-fast-generate-001
+        self.model = "imagen-4.0-generate-001"
 
     @property
     def name(self) -> str:

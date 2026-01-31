@@ -271,6 +271,9 @@ class SubjectSheet(BaseModel):
     # Common to all subjects
     description: Optional[Attribute] = None  # Free-form description override
 
+    # Reference image for visual consistency
+    reference_image_url: Optional[str] = None  # URL of generated reference image
+
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
