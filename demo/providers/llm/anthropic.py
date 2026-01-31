@@ -39,17 +39,17 @@ class AnthropicProvider(LLMProvider):
     def available_models(self) -> list[str]:
         return self.MODELS
 
-    def chat(
+    def _chat_impl(
         self,
         messages: list[Message],
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        thinking: bool = False,
+        model: str,
+        temperature: float,
+        thinking: bool,
         max_tokens: int = 8192,
         **kwargs
     ) -> LLMResponse:
         """
-        Send a chat request to Claude.
+        Internal implementation of chat for Claude.
 
         Args:
             messages: Conversation messages
@@ -58,8 +58,6 @@ class AnthropicProvider(LLMProvider):
             thinking: Enable extended thinking mode
             max_tokens: Maximum tokens in response
         """
-        model = model or self.default_model
-
         # Extract system message if present
         system_content = None
         claude_messages = []
@@ -108,11 +106,18 @@ class AnthropicProvider(LLMProvider):
                 elif block.type == "text":
                     result_text += block.text
 
+            # Extract token usage
+            input_tokens = getattr(response.usage, 'input_tokens', None)
+            output_tokens = getattr(response.usage, 'output_tokens', None)
+
             return LLMResponse(
                 content=result_text,
                 model=model,
                 provider=self.name,
-                thinking=thinking_text if thinking_text else None
+                thinking=thinking_text if thinking_text else None,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                finish_reason=getattr(response, 'stop_reason', None)
             )
 
         except Exception as e:
