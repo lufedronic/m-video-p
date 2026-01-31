@@ -160,7 +160,7 @@ class TestPromptCompression:
         """Long prompts should be compressed to under 800 chars."""
         from consistency import PromptAssembler
 
-        # Create a long prompt
+        # Create a long prompt (must be > 800 characters)
         long_prompt = (
             "A very extremely detailed photorealistic cinematic scene with "
             "a beautiful young woman in her late twenties with long flowing "
@@ -173,7 +173,8 @@ class TestPromptCompression:
             "which casts a cool blue glow on her features while the warm "
             "ambient lighting fills the rest of the room with golden tones "
             "and the camera slowly pushes in towards her face capturing "
-            "her emotional reaction in stunning 4K cinematic detail"
+            "her emotional reaction in stunning 4K cinematic detail with "
+            "professional color grading and beautiful bokeh in the background"
         )
 
         assert len(long_prompt) > 800  # Verify it's actually long
