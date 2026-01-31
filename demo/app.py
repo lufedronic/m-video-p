@@ -412,9 +412,8 @@ def import_bundle():
     if keyframe_urls:
         db.update_video(video_id, keyframe_urls=keyframe_urls)
 
-    # Update Flask session
+    # Update Flask session - only store session_id, not conversation (to avoid cookie overflow)
     session["session_id"] = session_id
-    session["conversation"] = []
     session.modified = True
 
     return jsonify({
@@ -614,17 +613,25 @@ def index():
     session_id = request.args.get("session")
 
     if session_id:
-        # Load existing session
+        # Load existing session from URL parameter
         existing = db.get_session(session_id)
         if existing:
             session["session_id"] = session_id
-            session["conversation"] = db.get_conversation(session_id)
+            # Don't store conversation in session cookie - load from DB when needed
             return render_template("index.html")
 
-    # Create new session
+    # Check if Flask session already has a valid session_id
+    existing_session_id = session.get("session_id")
+    if existing_session_id:
+        # Verify the session still exists in database
+        existing = db.get_session(existing_session_id)
+        if existing:
+            # Session is still valid, keep using it
+            return render_template("index.html")
+
+    # Create new session only if none exists
     new_session_id = db.create_session()
     session["session_id"] = new_session_id
-    session["conversation"] = []
     return render_template("index.html")
 
 
@@ -779,28 +786,28 @@ def chat():
     data = request.json
     user_message = data.get("message", "")
 
-    if "conversation" not in session:
-        session["conversation"] = []
-
     # Ensure we have a session_id
     if "session_id" not in session:
         session["session_id"] = db.create_session()
 
     session_id = session["session_id"]
-    turn_number = len(session["conversation"]) // 2 + 1  # Track conversation turn
 
-    # Add user message
-    session["conversation"].append({"role": "user", "content": user_message})
+    # Add user message to database first
     db.add_message(session_id, "user", user_message)
 
-    # Get LLM response
-    response = chat_with_llm(session["conversation"])
+    # Load conversation from database (not Flask session - avoids cookie overflow)
+    conversation = db.get_conversation(session_id)
+    turn_number = len(conversation) // 2  # Track conversation turn (after adding user message)
 
-    # Add assistant response to history
+    # Get LLM response
+    response = chat_with_llm(conversation)
+
+    # Add assistant response to database
     assistant_content = json.dumps(response)
-    session["conversation"].append({"role": "assistant", "content": assistant_content})
     db.add_message(session_id, "assistant", assistant_content)
-    session.modified = True
+
+    # Reload conversation for consistency extraction (now includes assistant response)
+    conversation = db.get_conversation(session_id)
 
     # Update session with product understanding
     if response.get("product_understanding"):
@@ -824,10 +831,10 @@ def chat():
         # Only extract if Anthropic API is available
         anthropic_provider = get_llm_provider("anthropic")
         if anthropic_provider:
-            # Convert conversation to Message format
+            # Convert conversation to Message format (conversation already loaded from DB above)
             messages = [
                 Message(role=msg["role"], content=msg["content"])
-                for msg in session["conversation"]
+                for msg in conversation
             ]
 
             extraction_result = anthropic_provider.extract_consistency_data(
@@ -1070,7 +1077,7 @@ def reset():
     # Create a new session instead of just clearing
     new_session_id = db.create_session()
     session["session_id"] = new_session_id
-    session["conversation"] = []
+    # Don't store conversation in session cookie - it's in the database
     return jsonify({"status": "ok", "session_id": new_session_id})
 
 
@@ -1082,13 +1089,16 @@ def generate_script():
     product = data.get("product_understanding", {})
     print(f"Product: {product}")
 
-    # Get conversation history for additional context
+    # Get conversation history for additional context (load from database, not session cookie)
     conversation_context = ""
-    if "conversation" in session:
-        conversation_context = "\n".join([
-            f"{msg['role'].upper()}: {msg['content'][:500]}"
-            for msg in session["conversation"][-6:]  # Last 6 messages for context
-        ])
+    session_id = session.get("session_id")
+    if session_id:
+        conversation = db.get_conversation(session_id)
+        if conversation:
+            conversation_context = "\n".join([
+                f"{msg['role'].upper()}: {msg['content'][:500]}"
+                for msg in conversation[-6:]  # Last 6 messages for context
+            ])
 
     script_prompt = f"""Based on this product understanding and conversation context, generate a punchy 15-second demo video script:
 
