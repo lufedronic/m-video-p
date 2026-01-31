@@ -2,7 +2,7 @@
 Tests for Wan 2.6 Reference-to-Video (R2V) mode (Phase 5).
 
 Run with:
-    pytest demo/tests/test_wan_r2v.py -v
+    cd demo && pytest tests/test_wan_r2v.py -v
 
 Success criteria: All tests must pass.
 
@@ -12,6 +12,10 @@ These tests verify:
 3. Prompt compression for 800-char limit
 4. Fallback to standard mode when no references
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import json
