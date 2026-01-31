@@ -39,17 +39,17 @@ class OpenAIProvider(LLMProvider):
     def available_models(self) -> list[str]:
         return self.MODELS
 
-    def chat(
+    def _chat_impl(
         self,
         messages: list[Message],
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        thinking: bool = False,
+        model: str,
+        temperature: float,
+        thinking: bool,
         max_tokens: int = 8192,
         **kwargs
     ) -> LLMResponse:
         """
-        Send a chat request to OpenAI.
+        Internal implementation of chat for OpenAI.
 
         Args:
             messages: Conversation messages
@@ -58,8 +58,6 @@ class OpenAIProvider(LLMProvider):
             thinking: Use reasoning model (o1/o3) if True
             max_tokens: Maximum tokens in response
         """
-        model = model or self.default_model
-
         # If thinking requested and using a non-reasoning model, switch to o1
         if thinking and model.startswith("gpt-"):
             model = "o1"
@@ -92,14 +90,19 @@ class OpenAIProvider(LLMProvider):
 
             result_text = response.choices[0].message.content or ""
 
-            # o1/o3 models include reasoning in the response (not separately accessible)
-            # The thinking is embedded in the response
+            # Extract token usage
+            input_tokens = getattr(response.usage, 'prompt_tokens', None)
+            output_tokens = getattr(response.usage, 'completion_tokens', None)
+            finish_reason = response.choices[0].finish_reason if response.choices else None
 
             return LLMResponse(
                 content=result_text,
                 model=model,
                 provider=self.name,
-                thinking=None  # OpenAI doesn't expose reasoning separately
+                thinking=None,  # OpenAI doesn't expose reasoning separately
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                finish_reason=finish_reason
             )
 
         except Exception as e:

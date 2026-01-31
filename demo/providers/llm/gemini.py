@@ -44,17 +44,17 @@ class GeminiProvider(LLMProvider):
     def available_models(self) -> list[str]:
         return self.MODELS
 
-    def chat(
+    def _chat_impl(
         self,
         messages: list[Message],
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        thinking: bool = False,
+        model: str,
+        temperature: float,
+        thinking: bool,
         thinking_level: str = "medium",
         **kwargs
     ) -> LLMResponse:
         """
-        Send a chat request to Gemini.
+        Internal implementation of chat for Gemini.
 
         Args:
             messages: Conversation messages
@@ -63,8 +63,6 @@ class GeminiProvider(LLMProvider):
             thinking: Enable thinking mode
             thinking_level: Level of thinking (minimal/low/medium/high)
         """
-        model = model or self.default_model
-
         # Convert messages to Gemini format
         gemini_messages = []
         for msg in messages:
@@ -114,11 +112,21 @@ class GeminiProvider(LLMProvider):
                 elif hasattr(part, 'text') and part.text:
                     result_text += part.text
 
+            # Extract token usage
+            input_tokens = None
+            output_tokens = None
+            if hasattr(response, 'usage_metadata'):
+                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', None)
+                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', None)
+
             return LLMResponse(
                 content=result_text,
                 model=model,
                 provider=self.name,
-                thinking=thinking_text if thinking_text else None
+                thinking=thinking_text if thinking_text else None,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                finish_reason="stop"
             )
 
         except Exception as e:
